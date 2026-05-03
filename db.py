@@ -72,9 +72,8 @@ async def get_all_active() -> list[dict]:
 
 async def deactivate(sub_id: int) -> None:
     async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "UPDATE subscriptions SET active = 0 WHERE id = ?", (sub_id,)
-        )
+        await db.execute("DELETE FROM snapshots WHERE subscription_id = ?", (sub_id,))
+        await db.execute("DELETE FROM subscriptions WHERE id = ?", (sub_id,))
         await db.commit()
 
 
