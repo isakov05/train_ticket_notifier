@@ -95,7 +95,7 @@ async def get_all_active() -> list[dict]:
 async def deactivate(sub_id: int) -> None:
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("DELETE FROM snapshots WHERE subscription_id = ?", (sub_id,))
-        await db.execute("DELETE FROM subscriptions WHERE id = ?", (sub_id,))
+        await db.execute("UPDATE subscriptions SET active = 0 WHERE id = ?", (sub_id,))
         await db.commit()
 
 
@@ -117,7 +117,7 @@ async def get_snapshot(sub_id: int) -> dict[str, dict[str, int]]:
 
 async def get_stats() -> dict:
     async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT COUNT(DISTINCT user_id) FROM subscriptions") as cur:
+        async with db.execute("SELECT COUNT(DISTINCT user_id) FROM subscriptions WHERE active = 1") as cur:
             total_users = (await cur.fetchone())[0]
         async with db.execute("SELECT COUNT(*) FROM subscriptions WHERE active = 1") as cur:
             active_watches = (await cur.fetchone())[0]

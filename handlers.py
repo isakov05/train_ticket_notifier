@@ -29,6 +29,12 @@ logger = logging.getLogger(__name__)
 
 SEARCH_DEP, SEARCH_ARV, ENTER_DATE = range(3)
 
+_CANCEL_ROW = [InlineKeyboardButton("Cancel", callback_data="cancel_watch")]
+_BACK_CANCEL_ROW = [
+    InlineKeyboardButton("Back", callback_data="back_to_dep"),
+    InlineKeyboardButton("Cancel", callback_data="cancel_watch"),
+]
+
 
 # ── /start ──────────────────────────────────────────────────────────────────
 
@@ -53,8 +59,9 @@ async def cmd_watch(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> int:
     user = update.effective_user
     await db.upsert_user(user.id, user.username, user.first_name)
     await update.message.reply_text(
-        "Type the *departure* city or station name:",
-        parse_mode="Markdown",
+        "Step 1/3 — Departure\n\n"
+        "Type the departure city or station name:",
+        reply_markup=InlineKeyboardMarkup([_CANCEL_ROW]),
     )
     return SEARCH_DEP
 
@@ -65,7 +72,8 @@ async def handle_dep_search(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> i
 
     if not matches:
         await update.message.reply_text(
-            "No stations found. Try a different spelling (e.g. Toshkent, Samarqand):"
+            "No stations found. Try a different spelling (e.g. Toshkent, Samarqand):",
+            reply_markup=InlineKeyboardMarkup([_CANCEL_ROW]),
         )
         return SEARCH_DEP
 
@@ -73,6 +81,7 @@ async def handle_dep_search(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> i
         [InlineKeyboardButton(name, callback_data=f"dep:{code}:{name}")]
         for name, code in matches
     ]
+    buttons.append(_CANCEL_ROW)
     await update.message.reply_text(
         "Select departure station:",
         reply_markup=InlineKeyboardMarkup(buttons),
@@ -85,10 +94,11 @@ async def handle_dep_pick(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> int
     await query.answer()
     _, code, name = query.data.split(":", 2)
     ctx.user_data["dep"] = {"code": code, "name": name}
-    await query.edit_message_text(f"Departure: *{name}*", parse_mode="Markdown")
+    await query.edit_message_text(f"Departure: {name}")
     await query.message.reply_text(
-        "Now type the *arrival* city or station name:",
-        parse_mode="Markdown",
+        "Step 2/3 — Arrival\n\n"
+        "Type the arrival city or station name:",
+        reply_markup=InlineKeyboardMarkup([_BACK_CANCEL_ROW]),
     )
     return SEARCH_ARV
 
@@ -99,7 +109,8 @@ async def handle_arv_search(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> i
 
     if not matches:
         await update.message.reply_text(
-            "No stations found. Try a different spelling:"
+            "No stations found. Try a different spelling:",
+            reply_markup=InlineKeyboardMarkup([_BACK_CANCEL_ROW]),
         )
         return SEARCH_ARV
 
@@ -107,6 +118,7 @@ async def handle_arv_search(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> i
         [InlineKeyboardButton(name, callback_data=f"arv:{code}:{name}")]
         for name, code in matches
     ]
+    buttons.append(_BACK_CANCEL_ROW)
     await update.message.reply_text(
         "Select arrival station:",
         reply_markup=InlineKeyboardMarkup(buttons),
@@ -119,10 +131,17 @@ async def handle_arv_pick(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> int
     await query.answer()
     _, code, name = query.data.split(":", 2)
     ctx.user_data["arv"] = {"code": code, "name": name}
-    await query.edit_message_text(f"Arrival: *{name}*", parse_mode="Markdown")
+    await query.edit_message_text(f"Arrival: {name}")
+    dep = ctx.user_data["dep"]
     await query.message.reply_text(
-        "Enter the travel date in *DD.MM.YYYY* format (e.g. 25.05.2025):",
-        parse_mode="Markdown",
+        f"Step 3/3 — Date\n\n"
+        f"Route: {dep['name']} → {name}\n\n"
+        "Enter the travel date in DD.MM.YYYY format\n"
+        "(e.g. 25.05.2025):",
+        reply_markup=InlineKeyboardMarkup([[
+            InlineKeyboardButton("Back", callback_data="back_to_arv"),
+            InlineKeyboardButton("Cancel", callback_data="cancel_watch"),
+        ]]),
     )
     return ENTER_DATE
 
@@ -133,15 +152,30 @@ async def handle_date(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> int:
         dt = datetime.strptime(text, "%d.%m.%Y")
     except ValueError:
         await update.message.reply_text(
-            "Invalid format. Please use DD.MM.YYYY (e.g. 25.05.2025):"
+            "Invalid format. Please use DD.MM.YYYY (e.g. 25.05.2025):",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("Cancel", callback_data="cancel_watch"),
+            ]]),
         )
         return ENTER_DATE
 
     if dt.date() < datetime.now().date():
         await update.message.reply_text(
-            "That date is in the past. Please enter a future date:"
+            "That date is in the past. Please enter a future date:",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("Cancel", callback_data="cancel_watch"),
+            ]]),
         )
         return ENTER_DATE
+
+    existing = await db.get_user_subscriptions(update.effective_user.id)
+    if len(existing) >= 3:
+        await update.message.reply_text(
+            "You have reached the limit of 3 active watches.\n"
+            "Use /list to remove one before adding a new watch."
+        )
+        ctx.user_data.clear()
+        return ConversationHandler.END
 
     dep = ctx.user_data["dep"]
     arv = ctx.user_data["arv"]
@@ -158,15 +192,49 @@ async def handle_date(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> int:
     )
 
     await update.message.reply_text(
-        f"Watching tickets:\n"
-        f"*{dep['name']}* → *{arv['name']}*\n"
+        f"Watch added!\n\n"
+        f"{dep['name']} -> {arv['name']}\n"
         f"Date: {dt.strftime('%d %B %Y')}\n\n"
-        f"I'll notify you when tickets become available. (ID: {sub_id})\n"
+        f"You will be notified when tickets become available. (ID: {sub_id})\n"
         f"Use /list to see all your watches.",
-        parse_mode="Markdown",
     )
     ctx.user_data.clear()
     return ConversationHandler.END
+
+
+async def handle_cancel_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    ctx.user_data.clear()
+    await query.edit_message_text("Watch cancelled.")
+    return ConversationHandler.END
+
+
+async def handle_back_to_dep(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    ctx.user_data.pop("dep", None)
+    await query.edit_message_text(
+        "Step 1/3 — Departure\n\n"
+        "Type the departure city or station name:",
+        reply_markup=InlineKeyboardMarkup([_CANCEL_ROW]),
+    )
+    return SEARCH_DEP
+
+
+async def handle_back_to_arv(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    ctx.user_data.pop("arv", None)
+    dep = ctx.user_data.get("dep", {})
+    dep_name = dep.get("name", "")
+    await query.edit_message_text(
+        f"Step 2/3 — Arrival\n\n"
+        f"Departure: {dep_name}\n\n"
+        "Type the arrival city or station name:",
+        reply_markup=InlineKeyboardMarkup([_BACK_CANCEL_ROW]),
+    )
+    return SEARCH_ARV
 
 
 async def cmd_cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> int:
@@ -188,7 +256,7 @@ async def cmd_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     for sub in subs:
         dt = datetime.strptime(sub["date"], "%Y-%m-%d")
         text = (
-            f"*{sub['dep_name']}* → *{sub['arv_name']}*\n"
+            f"*{sub['dep_name']}* -> *{sub['arv_name']}*\n"
             f"Date: {dt.strftime('%d %B %Y')}"
         )
         keyboard = InlineKeyboardMarkup([[
@@ -225,7 +293,7 @@ async def handle_check_now(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> No
 
     dt = datetime.strptime(sub["date"], "%Y-%m-%d")
     header = (
-        f"*{sub['dep_name']}* → *{sub['arv_name']}*\n"
+        f"*{sub['dep_name']}* -> *{sub['arv_name']}*\n"
         f"Date: {dt.strftime('%d %B %Y')}\n\n"
     )
 
@@ -240,7 +308,7 @@ async def handle_check_now(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> No
         arv_time = train.get("arrivalDate", "")
         duration = train.get("timeOnWay", "")
 
-        time_str = f"{dep_time} → {arv_time}"
+        time_str = f"{dep_time} -> {arv_time}"
         if duration:
             time_str += f"  ({duration})"
 
@@ -279,13 +347,18 @@ def watch_conversation() -> ConversationHandler:
         states={
             SEARCH_DEP: [
                 CallbackQueryHandler(handle_dep_pick, pattern=r"^dep:"),
+                CallbackQueryHandler(handle_cancel_callback, pattern=r"^cancel_watch$"),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, handle_dep_search),
             ],
             SEARCH_ARV: [
                 CallbackQueryHandler(handle_arv_pick, pattern=r"^arv:"),
+                CallbackQueryHandler(handle_back_to_dep, pattern=r"^back_to_dep$"),
+                CallbackQueryHandler(handle_cancel_callback, pattern=r"^cancel_watch$"),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, handle_arv_search),
             ],
             ENTER_DATE: [
+                CallbackQueryHandler(handle_back_to_arv, pattern=r"^back_to_arv$"),
+                CallbackQueryHandler(handle_cancel_callback, pattern=r"^cancel_watch$"),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, handle_date),
             ],
         },
