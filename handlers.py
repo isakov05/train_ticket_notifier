@@ -35,6 +35,7 @@ SEARCH_DEP, SEARCH_ARV, ENTER_DATE = range(3)
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     chat_id = update.effective_chat.id
+    await db.upsert_user(user.id, user.username, user.first_name)
     await update.message.reply_text(
         f"Hi {user.first_name}! I monitor train tickets on uzrailways.\n\n"
         f"Your chat ID: <code>{chat_id}</code>\n\n"
@@ -49,6 +50,8 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 # ── /watch conversation ──────────────────────────────────────────────────────
 
 async def cmd_watch(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> int:
+    user = update.effective_user
+    await db.upsert_user(user.id, user.username, user.first_name)
     await update.message.reply_text(
         "Type the *departure* city or station name:",
         parse_mode="Markdown",

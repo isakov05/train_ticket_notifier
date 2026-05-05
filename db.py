@@ -5,6 +5,14 @@ from config import DB_PATH
 async def init_db() -> None:
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                user_id     INTEGER PRIMARY KEY,
+                username    TEXT,
+                first_name  TEXT,
+                last_seen   TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
+        await db.execute("""
             CREATE TABLE IF NOT EXISTS subscriptions (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
                 chat_id     INTEGER NOT NULL,
@@ -28,6 +36,20 @@ async def init_db() -> None:
                 FOREIGN KEY (subscription_id) REFERENCES subscriptions(id)
             )
         """)
+        await db.commit()
+
+
+async def upsert_user(user_id: int, username: str | None, first_name: str | None) -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            """INSERT INTO users (user_id, username, first_name, last_seen)
+               VALUES (?, ?, ?, datetime('now'))
+               ON CONFLICT(user_id) DO UPDATE SET
+                   username   = excluded.username,
+                   first_name = excluded.first_name,
+                   last_seen  = excluded.last_seen""",
+            (user_id, username, first_name),
+        )
         await db.commit()
 
 
@@ -91,6 +113,48 @@ async def get_snapshot(sub_id: int) -> dict[str, dict[str, int]]:
     for row in rows:
         result.setdefault(row["train_number"], {})[row["car_type"]] = row["free_seats"]
     return result
+
+
+async def get_stats() -> dict:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT COUNT(DISTINCT user_id) FROM subscriptions") as cur:
+            total_users = (await cur.fetchone())[0]
+        async with db.execute("SELECT COUNT(*) FROM subscriptions WHERE active = 1") as cur:
+            active_watches = (await cur.fetchone())[0]
+        async with db.execute("SELECT COUNT(*) FROM subscriptions") as cur:
+            total_watches = (await cur.fetchone())[0]
+    return {
+        "total_users": total_users,
+        "active_watches": active_watches,
+        "total_watches_ever": total_watches,
+    }
+
+
+async def get_all_watches() -> list[dict]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("""
+            SELECT s.*, u.username, u.first_name
+            FROM subscriptions s
+            LEFT JOIN users u ON s.user_id = u.user_id
+            WHERE s.active = 1
+            ORDER BY u.username, s.date
+        """) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
+
+async def get_all_users() -> list[dict]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("""
+            SELECT u.user_id, u.username, u.first_name, u.last_seen,
+                   COUNT(s.id) as watch_count
+            FROM users u
+            LEFT JOIN subscriptions s ON u.user_id = s.user_id AND s.active = 1
+            GROUP BY u.user_id
+            ORDER BY u.last_seen DESC
+        """) as cur:
+            return [dict(r) for r in await cur.fetchall()]
 
 
 async def save_snapshot(sub_id: int, snapshot: dict[str, dict[str, int]]) -> None:

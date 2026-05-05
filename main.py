@@ -9,6 +9,7 @@ from telegram.ext import (
 
 import db
 import handlers as h
+from admin import admin_handlers
 from checker import RailwayClient, build_snapshot, diff_snapshots
 from config import BOT_TOKEN, CHECK_INTERVAL
 
@@ -94,6 +95,9 @@ def main() -> None:
     app.add_handler(h.watch_conversation())
     app.add_handler(CallbackQueryHandler(h.handle_remove, pattern=r"^remove:"))
     app.add_handler(CallbackQueryHandler(h.handle_check_now, pattern=r"^check:"))
+
+    for handler in admin_handlers():
+        app.add_handler(handler)
 
     app.job_queue.run_repeating(check_all, interval=CHECK_INTERVAL, first=10)
 
