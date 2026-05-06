@@ -189,6 +189,34 @@ class RailwayClient:
             self._xsrf = None
 
 
+# Maps all known Cyrillic/Latin/Uzbek variants to a stable canonical name
+_CAR_TYPE_ALIASES: dict[str, str] = {
+    # Platzkart
+    "плацкартный": "platzkart",
+    "плацкарт": "platzkart",
+    "plaskartli": "platzkart",
+    "plaskart": "platzkart",
+    # Coupe
+    "купе": "coupe",
+    "kupe": "coupe",
+    # Lux / SV
+    "люкс": "lux",
+    "lyuks": "lux",
+    "св": "lux",
+    "sv": "lux",
+    # General / Sitting
+    "общий": "general",
+    "umumiy": "general",
+    "сиденье": "seat",
+    "o'rindiq": "seat",
+    "orindiq": "seat",
+}
+
+
+def _normalize_car_type(raw: str) -> str:
+    return _CAR_TYPE_ALIASES.get(raw.strip().lower(), raw.strip().lower())
+
+
 def build_snapshot(trains: list[dict]) -> dict[str, dict[str, int]]:
     """Build {train_number: {car_type: free_seats}} snapshot from API trains list."""
     snapshot: dict[str, dict[str, int]] = {}
@@ -198,10 +226,10 @@ def build_snapshot(trains: list[dict]) -> dict[str, dict[str, int]]:
             continue
         cars: dict[str, int] = {}
         for car in train.get("cars", []):
-            car_type = str(car.get("type", "unknown")).strip()
+            car_type = _normalize_car_type(str(car.get("type", "unknown")))
             free = int(car.get("freeSeats", 0) or 0)
             if free > 0:
-                cars[car_type] = free
+                cars[car_type] = max(cars.get(car_type, 0), free)
         if cars:
             snapshot[number] = cars
     return snapshot

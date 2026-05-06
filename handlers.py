@@ -14,7 +14,7 @@ from telegram.ext import (
 )
 
 import db
-from checker import RailwayClient, build_snapshot
+from checker import RailwayClient, build_snapshot, _normalize_car_type
 from stations import search_stations
 
 _railway = RailwayClient()
@@ -76,7 +76,7 @@ def _format_train_html(train: dict) -> str:
         time_str += f"   ({duration})"
 
     available = [
-        (str(c.get("type", "unknown")).strip(), _free_seats(c))
+        (_normalize_car_type(str(c.get("type", "unknown"))), _free_seats(c))
         for c in cars
         if _free_seats(c) > 0
     ]
