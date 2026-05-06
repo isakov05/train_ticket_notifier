@@ -65,10 +65,10 @@ class RailwayClient:
             resp = await client.post(url, json=payload, headers=self._post_headers())
         return resp
 
-    async def get_trains(self, dep_code: str, arv_code: str, date: str) -> list[dict]:
+    async def get_trains(self, dep_code: str, arv_code: str, date: str) -> list[dict] | None:
         """Fetch trains for a route on a given date (date: YYYY-MM-DD).
 
-        Returns list of train dicts, empty list on failure.
+        Returns list of train dicts, or None on request/API failure.
         """
         payload = {
             "directions": {
@@ -89,24 +89,30 @@ class RailwayClient:
                 .get("forward", {})
                 .get("trains", [])
             )
-            return trains if isinstance(trains, list) else []
+            if isinstance(trains, list):
+                return trains
+            logger.error("Unexpected trains response shape for %s→%s on %s", dep_code, arv_code, date)
+            return None
         except httpx.HTTPStatusError as exc:
             logger.error("HTTP %s fetching trains %s→%s on %s", exc.response.status_code, dep_code, arv_code, date)
-            return []
+            return None
         except Exception as exc:
             logger.error("Error fetching trains: %s", exc)
-            return []
+            return None
 
-    async def search_stations(self, query: str) -> list[dict]:
-        """Search stations by name. Returns list of {code, name} dicts."""
+    async def search_stations(self, query: str) -> list[dict] | None:
+        """Search stations by name. Returns list of {code, name} dicts, or None on failure."""
         try:
             resp = await self._post(STATIONS_ENDPOINT, {"name": query})
             resp.raise_for_status()
             stations = resp.json().get("data", {}).get("stations", [])
-            return stations if isinstance(stations, list) else []
+            if isinstance(stations, list):
+                return stations
+            logger.error("Unexpected stations response shape for query %r", query)
+            return None
         except Exception as exc:
             logger.error("Error searching stations: %s", exc)
-            return []
+            return None
 
     async def close(self) -> None:
         if self._client:

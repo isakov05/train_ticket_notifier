@@ -1,5 +1,6 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
+from html import escape
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
@@ -36,6 +37,56 @@ _BACK_CANCEL_ROW = [
 ]
 
 
+def _h(value: object) -> str:
+    return escape(str(value or ""), quote=False)
+
+
+def _date_example() -> str:
+    return (datetime.now() + timedelta(days=7)).strftime("%d.%m.%Y")
+
+
+def _seat_label(count: int) -> str:
+    return "seat" if count == 1 else "seats"
+
+
+def _free_seats(car: dict) -> int:
+    try:
+        return int(car.get("freeSeats", 0) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _format_train_html(train: dict) -> str:
+    number = _h(str(train.get("number", "")).strip() or "Unknown")
+    dep_time = _h(train.get("departureDate", ""))
+    arv_time = _h(train.get("arrivalDate", ""))
+    duration = _h(train.get("timeOnWay", ""))
+    cars = train.get("cars", [])
+
+    lines = [f"<b>Train {number}</b>"]
+    if dep_time or arv_time:
+        lines.append(f"{dep_time} → {arv_time}".strip())
+    if duration:
+        lines.append(f"Duration: {duration}")
+
+    available = [
+        (str(c.get("type", "unknown")).strip(), _free_seats(c))
+        for c in cars
+        if _free_seats(c) > 0
+    ]
+
+    if available:
+        lines.append("Available:")
+        lines.extend(
+            f"• {_h(car_type)}: <b>{seats}</b> {_seat_label(seats)}"
+            for car_type, seats in available
+        )
+    else:
+        lines.append("No seats available")
+
+    return "\n".join(lines)
+
+
 # ── /start ──────────────────────────────────────────────────────────────────
 
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -43,7 +94,7 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
     await db.upsert_user(user.id, user.username, user.first_name)
     await update.message.reply_text(
-        f"Hi {user.first_name}! I monitor train tickets on uzrailways.\n\n"
+        f"Hi {_h(user.first_name)}! I monitor train tickets on uzrailways.\n\n"
         f"Your chat ID: <code>{chat_id}</code>\n\n"
         "Commands:\n"
         "/watch — add a new ticket watch\n"
@@ -77,9 +128,10 @@ async def handle_dep_search(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> i
         )
         return SEARCH_DEP
 
+    ctx.user_data["dep_matches"] = matches
     buttons = [
-        [InlineKeyboardButton(name, callback_data=f"dep:{code}:{name}")]
-        for name, code in matches
+        [InlineKeyboardButton(name, callback_data=f"dep:{index}")]
+        for index, (name, _code) in enumerate(matches)
     ]
     buttons.append(_CANCEL_ROW)
     await update.message.reply_text(
@@ -92,7 +144,13 @@ async def handle_dep_search(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> i
 async def handle_dep_pick(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
-    _, code, name = query.data.split(":", 2)
+    try:
+        index = int(query.data.split(":", 1)[1])
+        name, code = ctx.user_data["dep_matches"][index]
+    except (KeyError, IndexError, ValueError):
+        await query.answer("Please search again.", show_alert=True)
+        return SEARCH_DEP
+
     ctx.user_data["dep"] = {"code": code, "name": name}
     await query.edit_message_text(f"Departure: {name}")
     await query.message.reply_text(
@@ -114,9 +172,10 @@ async def handle_arv_search(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> i
         )
         return SEARCH_ARV
 
+    ctx.user_data["arv_matches"] = matches
     buttons = [
-        [InlineKeyboardButton(name, callback_data=f"arv:{code}:{name}")]
-        for name, code in matches
+        [InlineKeyboardButton(name, callback_data=f"arv:{index}")]
+        for index, (name, _code) in enumerate(matches)
     ]
     buttons.append(_BACK_CANCEL_ROW)
     await update.message.reply_text(
@@ -129,7 +188,13 @@ async def handle_arv_search(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> i
 async def handle_arv_pick(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
-    _, code, name = query.data.split(":", 2)
+    try:
+        index = int(query.data.split(":", 1)[1])
+        name, code = ctx.user_data["arv_matches"][index]
+    except (KeyError, IndexError, ValueError):
+        await query.answer("Please search again.", show_alert=True)
+        return SEARCH_ARV
+
     ctx.user_data["arv"] = {"code": code, "name": name}
     await query.edit_message_text(f"Arrival: {name}")
     dep = ctx.user_data["dep"]
@@ -137,7 +202,7 @@ async def handle_arv_pick(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> int
         f"Step 3/3 — Date\n\n"
         f"Route: {dep['name']} → {name}\n\n"
         "Enter the travel date in DD.MM.YYYY format\n"
-        "(e.g. 25.05.2025):",
+        f"(e.g. {_date_example()}):",
         reply_markup=InlineKeyboardMarkup([[
             InlineKeyboardButton("Back", callback_data="back_to_arv"),
             InlineKeyboardButton("Cancel", callback_data="cancel_watch"),
@@ -152,7 +217,7 @@ async def handle_date(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> int:
         dt = datetime.strptime(text, "%d.%m.%Y")
     except ValueError:
         await update.message.reply_text(
-            "Invalid format. Please use DD.MM.YYYY (e.g. 25.05.2025):",
+            f"Invalid format. Please use DD.MM.YYYY (e.g. {_date_example()}):",
             reply_markup=InlineKeyboardMarkup([[
                 InlineKeyboardButton("Cancel", callback_data="cancel_watch"),
             ]]),
@@ -256,8 +321,9 @@ async def cmd_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     for sub in subs:
         dt = datetime.strptime(sub["date"], "%Y-%m-%d")
         text = (
-            f"*{sub['dep_name']}* -> *{sub['arv_name']}*\n"
-            f"Date: {dt.strftime('%d %B %Y')}"
+            f"<b>{_h(sub['dep_name'])} → {_h(sub['arv_name'])}</b>\n"
+            f"Date: {dt.strftime('%d %B %Y')}\n"
+            f"Watch ID: <code>{sub['id']}</code>"
         )
         keyboard = InlineKeyboardMarkup([[
             InlineKeyboardButton("Check now", callback_data=f"check:{sub['id']}"),
@@ -265,7 +331,7 @@ async def cmd_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         ]])
         await update.message.reply_text(
             text,
-            parse_mode="Markdown",
+            parse_mode="HTML",
             reply_markup=keyboard,
         )
 
@@ -274,6 +340,13 @@ async def handle_remove(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     await query.answer()
     sub_id = int(query.data.split(":")[1])
+
+    subs = await db.get_user_subscriptions(update.effective_user.id)
+    sub = next((s for s in subs if s["id"] == sub_id), None)
+    if sub is None:
+        await query.answer("Watch not found.", show_alert=True)
+        return
+
     await db.deactivate(sub_id)
     await query.edit_message_text("Watch removed.")
 
@@ -293,37 +366,29 @@ async def handle_check_now(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> No
 
     dt = datetime.strptime(sub["date"], "%Y-%m-%d")
     header = (
-        f"*{sub['dep_name']}* -> *{sub['arv_name']}*\n"
+        f"<b>{_h(sub['dep_name'])} → {_h(sub['arv_name'])}</b>\n"
         f"Date: {dt.strftime('%d %B %Y')}\n\n"
     )
 
-    if not trains:
-        await query.message.reply_text(header + "No trains found for this route and date.", parse_mode="Markdown")
+    if trains is None:
+        await query.message.reply_text(
+            header + "Could not check railway data right now. Please try again later.",
+            parse_mode="HTML",
+        )
         return
 
-    lines = []
-    for train in trains:
-        number = str(train.get("number", "")).strip()
-        dep_time = train.get("departureDate", "")
-        arv_time = train.get("arrivalDate", "")
-        duration = train.get("timeOnWay", "")
+    if not trains:
+        await query.message.reply_text(
+            header + "No trains found for this route and date.",
+            parse_mode="HTML",
+        )
+        return
 
-        time_str = f"{dep_time} -> {arv_time}"
-        if duration:
-            time_str += f"  ({duration})"
-
-        cars = train.get("cars", [])
-        available = [(c["type"], c["freeSeats"]) for c in cars if c.get("freeSeats", 0) > 0]
-
-        if available:
-            seat_lines = "  " + ",  ".join(f"{t}: {s} seats" for t, s in available)
-            lines.append(f"Train {number}  {time_str}\n{seat_lines}")
-        else:
-            lines.append(f"Train {number}  {time_str}\n  No seats available")
+    lines = [_format_train_html(train) for train in trains]
 
     await query.message.reply_text(
         header + "\n\n".join(lines) + "\n\nBook: https://eticket.railway.uz",
-        parse_mode="Markdown",
+        parse_mode="HTML",
     )
 
 

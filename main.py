@@ -1,6 +1,7 @@
 import logging
 from datetime import datetime
 
+from telegram import BotCommand, BotCommandScopeChat, BotCommandScopeDefault
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -11,7 +12,7 @@ import db
 import handlers as h
 from admin import admin_handlers
 from checker import RailwayClient, build_snapshot, diff_snapshots
-from config import BOT_TOKEN, CHECK_INTERVAL
+from config import ADMIN_ID, BOT_TOKEN, CHECK_INTERVAL
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -20,6 +21,19 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 railway = RailwayClient()
+
+USER_COMMANDS = [
+    BotCommand("watch", "Add a new ticket watch"),
+    BotCommand("list", "Show your active watches"),
+    BotCommand("help", "Show help"),
+]
+
+ADMIN_COMMANDS = [
+    *USER_COMMANDS,
+    BotCommand("stats", "Show bot statistics"),
+    BotCommand("watches", "Show all active watches"),
+    BotCommand("users", "Show bot users"),
+]
 
 
 async def check_all(ctx) -> None:
@@ -47,6 +61,13 @@ async def check_all(ctx) -> None:
             continue
 
         trains = await railway.get_trains(sub["dep_code"], sub["arv_code"], sub["date"])
+        if trains is None:
+            logger.warning(
+                "Skipping snapshot update after failed railway check for subscription %s",
+                sub["id"],
+            )
+            continue
+
         new_snapshot = build_snapshot(trains)
         old_snapshot = await db.get_snapshot(sub["id"])
         changes = diff_snapshots(old_snapshot, new_snapshot, trains)
@@ -71,6 +92,8 @@ async def check_all(ctx) -> None:
 
 async def post_init(app: Application) -> None:
     await db.init_db()
+    await app.bot.set_my_commands(USER_COMMANDS, scope=BotCommandScopeDefault())
+    await app.bot.set_my_commands(ADMIN_COMMANDS, scope=BotCommandScopeChat(chat_id=ADMIN_ID))
     # Share the single railway client with handlers module
     h._railway = railway
     logger.info("Database initialised")
