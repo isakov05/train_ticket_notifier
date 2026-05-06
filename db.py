@@ -36,6 +36,12 @@ async def init_db() -> None:
                 FOREIGN KEY (subscription_id) REFERENCES subscriptions(id)
             )
         """)
+        # Add blocked column if it doesn't exist (migration for existing DBs)
+        try:
+            await db.execute("ALTER TABLE users ADD COLUMN blocked INTEGER NOT NULL DEFAULT 0")
+            await db.commit()
+        except Exception:
+            pass
         await db.commit()
 
 
@@ -143,18 +149,33 @@ async def get_all_watches() -> list[dict]:
             return [dict(r) for r in await cur.fetchall()]
 
 
+async def set_user_blocked(user_id: int, blocked: bool) -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE users SET blocked = ? WHERE user_id = ?",
+            (1 if blocked else 0, user_id),
+        )
+        await db.commit()
+
+
 async def get_all_users() -> list[dict]:
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute("""
             SELECT u.user_id, u.username, u.first_name, u.last_seen,
-                   COUNT(s.id) as watch_count
+                   u.blocked, COUNT(s.id) as watch_count
             FROM users u
             LEFT JOIN subscriptions s ON u.user_id = s.user_id AND s.active = 1
             GROUP BY u.user_id
             ORDER BY u.last_seen DESC
         """) as cur:
             return [dict(r) for r in await cur.fetchall()]
+
+
+async def get_all_user_ids() -> list[int]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT user_id FROM users") as cur:
+            return [r[0] for r in await cur.fetchall()]
 
 
 async def save_snapshot(sub_id: int, snapshot: dict[str, dict[str, int]]) -> None:

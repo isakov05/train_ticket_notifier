@@ -1,8 +1,10 @@
+import asyncio
 import functools
 import logging
 from datetime import datetime
 
 from telegram import Update
+from telegram.error import Forbidden, TimedOut
 from telegram.ext import CommandHandler, ContextTypes
 
 import db
@@ -83,9 +85,35 @@ async def cmd_users(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         label = _user_label(u)
         watches = u["watch_count"]
         last = u["last_seen"][:10]
-        lines.append(f"{label}\n  Watches: {watches}  |  Last seen: {last}")
+        status = "blocked" if u.get("blocked") else "active"
+        lines.append(f"{label}  [{status}]\n  Watches: {watches}  |  Last seen: {last}")
 
     await _send_chunks(update, "\n\n".join(lines))
+
+
+@admin_only
+async def cmd_broadcast(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    text = update.message.text.partition(" ")[2].strip()
+    if not text:
+        await update.message.reply_text("Usage: /broadcast <message>")
+        return
+
+    user_ids = await db.get_all_user_ids()
+    sent = blocked = failed = 0
+
+    for user_id in user_ids:
+        try:
+            await ctx.bot.send_message(chat_id=user_id, text=text)
+            sent += 1
+        except Forbidden:
+            await db.set_user_blocked(user_id, True)
+            blocked += 1
+        except Exception:
+            failed += 1
+
+    await update.message.reply_text(
+        f"Broadcast done.\n\nSent: {sent}  |  Blocked: {blocked}  |  Failed: {failed}"
+    )
 
 
 @admin_only
@@ -100,7 +128,16 @@ async def cmd_forcecheck(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
 
 async def _send_chunks(update: Update, text: str) -> None:
     for i in range(0, len(text), 4000):
-        await update.message.reply_text(text[i:i + 4000])
+        chunk = text[i:i + 4000]
+        for attempt in range(3):
+            try:
+                await update.message.reply_text(chunk)
+                break
+            except TimedOut:
+                if attempt == 2:
+                    await update.message.reply_text("(message timed out, some results may be missing)")
+                    return
+                await asyncio.sleep(2)
 
 
 def admin_handlers() -> list:
@@ -108,5 +145,6 @@ def admin_handlers() -> list:
         CommandHandler("stats", cmd_stats),
         CommandHandler("watches", cmd_watches),
         CommandHandler("users", cmd_users),
+        CommandHandler("broadcast", cmd_broadcast),
         CommandHandler("forcecheck", cmd_forcecheck),
     ]

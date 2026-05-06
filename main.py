@@ -3,6 +3,7 @@ import logging
 from datetime import datetime
 
 from telegram import BotCommand, BotCommandScopeChat, BotCommandScopeDefault
+from telegram.error import Forbidden
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -35,6 +36,7 @@ ADMIN_COMMANDS = [
     BotCommand("stats", "Show bot statistics"),
     BotCommand("watches", "Show all active watches"),
     BotCommand("users", "Show bot users"),
+    BotCommand("broadcast", "Send message to all users"),
     BotCommand("forcecheck", "Trigger a ticket check now"),
 ]
 
@@ -85,6 +87,10 @@ async def _check_sub(sub: dict, bot, today) -> None:
                 parse_mode="HTML",
                 disable_web_page_preview=True,
             )
+            await db.set_user_blocked(sub["user_id"], False)
+        except Forbidden:
+            await db.set_user_blocked(sub["user_id"], True)
+            logger.info("User %s has blocked the bot", sub["user_id"])
         except Exception as exc:
             logger.error("Failed to notify chat %s: %s", sub["chat_id"], exc)
 
