@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from html import escape
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.error import BadRequest
 from telegram.ext import (
     CallbackQueryHandler,
     CommandHandler,
@@ -29,6 +30,13 @@ async def _search_stations(query: str) -> list[tuple[str, str]]:
 logger = logging.getLogger(__name__)
 
 SEARCH_DEP, SEARCH_ARV, ENTER_DATE = range(3)
+
+
+async def _safe_answer(query, text: str = "", show_alert: bool = False) -> None:
+    try:
+        await query.answer(text, show_alert=show_alert)
+    except BadRequest:
+        pass
 
 _CANCEL_ROW = [InlineKeyboardButton("Cancel", callback_data="cancel_watch")]
 _BACK_CANCEL_ROW = [
@@ -57,17 +65,15 @@ def _free_seats(car: dict) -> int:
 
 
 def _format_train_html(train: dict) -> str:
-    number = _h(str(train.get("number", "")).strip() or "Unknown")
+    number = _h(str(train.get("number", "")).strip() or "?")
     dep_time = _h(train.get("departureDate", ""))
     arv_time = _h(train.get("arrivalDate", ""))
     duration = _h(train.get("timeOnWay", ""))
     cars = train.get("cars", [])
 
-    lines = [f"<b>Train {number}</b>"]
-    if dep_time or arv_time:
-        lines.append(f"{dep_time} → {arv_time}".strip())
+    time_str = f"{dep_time} → {arv_time}" if dep_time or arv_time else ""
     if duration:
-        lines.append(f"Duration: {duration}")
+        time_str += f"   ({duration})"
 
     available = [
         (str(c.get("type", "unknown")).strip(), _free_seats(c))
@@ -75,16 +81,19 @@ def _format_train_html(train: dict) -> str:
         if _free_seats(c) > 0
     ]
 
+    lines = [f"<b>Train {number}</b>   {time_str}".strip()]
     if available:
-        lines.append("Available:")
         lines.extend(
-            f"• {_h(car_type)}: <b>{seats}</b> {_seat_label(seats)}"
+            f"  {_h(car_type)}: <b>{seats}</b> {_seat_label(seats)}"
             for car_type, seats in available
         )
     else:
-        lines.append("No seats available")
+        lines.append("  No seats available")
 
     return "\n".join(lines)
+
+
+_SEP = "─" * 22
 
 
 # ── /start ──────────────────────────────────────────────────────────────────
@@ -143,12 +152,12 @@ async def handle_dep_search(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> i
 
 async def handle_dep_pick(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
-    await query.answer()
+    await _safe_answer(query)
     try:
         index = int(query.data.split(":", 1)[1])
         name, code = ctx.user_data["dep_matches"][index]
     except (KeyError, IndexError, ValueError):
-        await query.answer("Please search again.", show_alert=True)
+        await _safe_answer(query, "Please search again.", show_alert=True)
         return SEARCH_DEP
 
     ctx.user_data["dep"] = {"code": code, "name": name}
@@ -187,12 +196,12 @@ async def handle_arv_search(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> i
 
 async def handle_arv_pick(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
-    await query.answer()
+    await _safe_answer(query)
     try:
         index = int(query.data.split(":", 1)[1])
         name, code = ctx.user_data["arv_matches"][index]
     except (KeyError, IndexError, ValueError):
-        await query.answer("Please search again.", show_alert=True)
+        await _safe_answer(query, "Please search again.", show_alert=True)
         return SEARCH_ARV
 
     ctx.user_data["arv"] = {"code": code, "name": name}
@@ -233,7 +242,12 @@ async def handle_date(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> int:
         )
         return ENTER_DATE
 
+    dep = ctx.user_data["dep"]
+    arv = ctx.user_data["arv"]
+    date_str = dt.strftime("%Y-%m-%d")
+
     existing = await db.get_user_subscriptions(update.effective_user.id)
+
     if len(existing) >= 3:
         await update.message.reply_text(
             "You have reached the limit of 3 active watches.\n"
@@ -242,9 +256,17 @@ async def handle_date(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> int:
         ctx.user_data.clear()
         return ConversationHandler.END
 
-    dep = ctx.user_data["dep"]
-    arv = ctx.user_data["arv"]
-    date_str = dt.strftime("%Y-%m-%d")
+    duplicate = any(
+        s["dep_code"] == dep["code"] and s["arv_code"] == arv["code"] and s["date"] == date_str
+        for s in existing
+    )
+    if duplicate:
+        await update.message.reply_text(
+            f"You already have a watch for {dep['name']} -> {arv['name']} on {dt.strftime('%d %B %Y')}.\n"
+            "Use /list to see your active watches."
+        )
+        ctx.user_data.clear()
+        return ConversationHandler.END
 
     sub_id = await db.add_subscription(
         chat_id=update.effective_chat.id,
@@ -269,7 +291,7 @@ async def handle_date(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> int:
 
 async def handle_cancel_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
-    await query.answer()
+    await _safe_answer(query)
     ctx.user_data.clear()
     await query.edit_message_text("Watch cancelled.")
     return ConversationHandler.END
@@ -277,7 +299,7 @@ async def handle_cancel_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
 
 async def handle_back_to_dep(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
-    await query.answer()
+    await _safe_answer(query)
     ctx.user_data.pop("dep", None)
     await query.edit_message_text(
         "Step 1/3 — Departure\n\n"
@@ -289,7 +311,7 @@ async def handle_back_to_dep(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> 
 
 async def handle_back_to_arv(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
-    await query.answer()
+    await _safe_answer(query)
     ctx.user_data.pop("arv", None)
     dep = ctx.user_data.get("dep", {})
     dep_name = dep.get("name", "")
@@ -338,13 +360,13 @@ async def cmd_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def handle_remove(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
-    await query.answer()
+    await _safe_answer(query)
     sub_id = int(query.data.split(":")[1])
 
     subs = await db.get_user_subscriptions(update.effective_user.id)
     sub = next((s for s in subs if s["id"] == sub_id), None)
     if sub is None:
-        await query.answer("Watch not found.", show_alert=True)
+        await _safe_answer(query, "Watch not found.", show_alert=True)
         return
 
     await db.deactivate(sub_id)
@@ -353,13 +375,13 @@ async def handle_remove(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def handle_check_now(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
-    await query.answer("Checking...")
+    await _safe_answer(query, "Checking...")
 
     sub_id = int(query.data.split(":")[1])
     subs = await db.get_user_subscriptions(update.effective_user.id)
     sub = next((s for s in subs if s["id"] == sub_id), None)
     if sub is None:
-        await query.answer("Watch not found.", show_alert=True)
+        await _safe_answer(query, "Watch not found.", show_alert=True)
         return
 
     trains = await _railway.get_trains(sub["dep_code"], sub["arv_code"], sub["date"])
@@ -367,28 +389,30 @@ async def handle_check_now(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> No
     dt = datetime.strptime(sub["date"], "%Y-%m-%d")
     header = (
         f"<b>{_h(sub['dep_name'])} → {_h(sub['arv_name'])}</b>\n"
-        f"Date: {dt.strftime('%d %B %Y')}\n\n"
+        f"{dt.strftime('%d %B %Y')}\n"
+        f"{_SEP}"
     )
 
     if trains is None:
         await query.message.reply_text(
-            header + "Could not check railway data right now. Please try again later.",
+            header + "\nCould not reach railway.uz. Try again later.",
             parse_mode="HTML",
         )
         return
 
     if not trains:
         await query.message.reply_text(
-            header + "No trains found for this route and date.",
+            header + "\nNo trains found for this route and date.",
             parse_mode="HTML",
         )
         return
 
-    lines = [_format_train_html(train) for train in trains]
-
+    body = f"\n\n".join(_format_train_html(t) for t in trains)
     await query.message.reply_text(
-        header + "\n\n".join(lines) + "\n\nBook: https://eticket.railway.uz",
+        f"{header}\n\n{body}\n\n{_SEP}\n"
+        f'<a href="https://eticket.railway.uz">Book tickets</a>',
         parse_mode="HTML",
+        disable_web_page_preview=True,
     )
 
 

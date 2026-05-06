@@ -10,6 +10,8 @@ from config import ADMIN_ID
 
 logger = logging.getLogger(__name__)
 
+_check_all = None  # set by main.py after init
+
 
 def admin_only(func):
     @functools.wraps(func)
@@ -86,6 +88,16 @@ async def cmd_users(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     await _send_chunks(update, "\n\n".join(lines))
 
 
+@admin_only
+async def cmd_forcecheck(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    if _check_all is None:
+        await update.message.reply_text("Force check not available.")
+        return
+    await update.message.reply_text("Running check...")
+    await _check_all(ctx)
+    await update.message.reply_text("Done.")
+
+
 async def _send_chunks(update: Update, text: str) -> None:
     for i in range(0, len(text), 4000):
         await update.message.reply_text(text[i:i + 4000])
@@ -96,4 +108,5 @@ def admin_handlers() -> list:
         CommandHandler("stats", cmd_stats),
         CommandHandler("watches", cmd_watches),
         CommandHandler("users", cmd_users),
+        CommandHandler("forcecheck", cmd_forcecheck),
     ]

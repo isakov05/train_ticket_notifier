@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from datetime import datetime
 
@@ -8,6 +9,7 @@ from telegram.ext import (
     CommandHandler,
 )
 
+import admin as adm
 import db
 import handlers as h
 from admin import admin_handlers
@@ -33,61 +35,69 @@ ADMIN_COMMANDS = [
     BotCommand("stats", "Show bot statistics"),
     BotCommand("watches", "Show all active watches"),
     BotCommand("users", "Show bot users"),
+    BotCommand("forcecheck", "Trigger a ticket check now"),
 ]
+
+
+async def _check_sub(sub: dict, bot, today) -> None:
+    sub_date = datetime.strptime(sub["date"], "%Y-%m-%d").date()
+
+    if sub_date < today:
+        await db.deactivate(sub["id"])
+        try:
+            await bot.send_message(
+                chat_id=sub["chat_id"],
+                text=(
+                    f"Watch expired: {sub['dep_name']} → {sub['arv_name']} "
+                    f"on {sub_date.strftime('%d %B %Y')}."
+                ),
+            )
+        except Exception:
+            pass
+        return
+
+    async with railway.bg_semaphore:
+        trains = await railway.get_trains(sub["dep_code"], sub["arv_code"], sub["date"])
+
+    if trains is None:
+        logger.warning("Skipping snapshot update after failed railway check for subscription %s", sub["id"])
+        return
+
+    new_snapshot = build_snapshot(trains)
+    old_snapshot = await db.get_snapshot(sub["id"])
+    changes = diff_snapshots(old_snapshot, new_snapshot, trains)
+
+    if changes:
+        sep = "─" * 22
+        text = (
+            f"Tickets available!\n\n"
+            f"<b>{sub['dep_name']} → {sub['arv_name']}</b>\n"
+            f"{sub_date.strftime('%d %B %Y')}\n"
+            f"{sep}\n"
+            + "\n\n".join(changes)
+            + f"\n\n{sep}\n"
+            f'<a href="https://eticket.railway.uz">Book tickets</a>'
+        )
+        try:
+            await bot.send_message(
+                chat_id=sub["chat_id"],
+                text=text,
+                parse_mode="HTML",
+                disable_web_page_preview=True,
+            )
+        except Exception as exc:
+            logger.error("Failed to notify chat %s: %s", sub["chat_id"], exc)
+
+    if new_snapshot != old_snapshot:
+        await db.save_snapshot(sub["id"], new_snapshot)
 
 
 async def check_all(ctx) -> None:
     subs = await db.get_all_active()
     if not subs:
         return
-
     today = datetime.now().date()
-
-    for sub in subs:
-        sub_date = datetime.strptime(sub["date"], "%Y-%m-%d").date()
-
-        if sub_date < today:
-            await db.deactivate(sub["id"])
-            try:
-                await ctx.bot.send_message(
-                    chat_id=sub["chat_id"],
-                    text=(
-                        f"Watch expired: {sub['dep_name']} → {sub['arv_name']} "
-                        f"on {sub_date.strftime('%d %B %Y')}."
-                    ),
-                )
-            except Exception:
-                pass
-            continue
-
-        trains = await railway.get_trains(sub["dep_code"], sub["arv_code"], sub["date"])
-        if trains is None:
-            logger.warning(
-                "Skipping snapshot update after failed railway check for subscription %s",
-                sub["id"],
-            )
-            continue
-
-        new_snapshot = build_snapshot(trains)
-        old_snapshot = await db.get_snapshot(sub["id"])
-        changes = diff_snapshots(old_snapshot, new_snapshot, trains)
-
-        if changes:
-            date_fmt = sub_date.strftime("%d %B %Y")
-            text = (
-                f"New tickets available!\n"
-                f"Route: {sub['dep_name']} → {sub['arv_name']}\n"
-                f"Date: {date_fmt}\n\n"
-                + "\n\n".join(changes)
-                + "\n\nBook: https://eticket.railway.uz"
-            )
-            try:
-                await ctx.bot.send_message(chat_id=sub["chat_id"], text=text)
-            except Exception as exc:
-                logger.error("Failed to notify chat %s: %s", sub["chat_id"], exc)
-
-        if new_snapshot != old_snapshot:
-            await db.save_snapshot(sub["id"], new_snapshot)
+    await asyncio.gather(*[_check_sub(sub, ctx.bot, today) for sub in subs])
 
 
 async def post_init(app: Application) -> None:
@@ -96,6 +106,7 @@ async def post_init(app: Application) -> None:
     await app.bot.set_my_commands(ADMIN_COMMANDS, scope=BotCommandScopeChat(chat_id=ADMIN_ID))
     # Share the single railway client with handlers module
     h._railway = railway
+    adm._check_all = check_all
     logger.info("Database initialised")
 
 
