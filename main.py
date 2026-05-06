@@ -100,9 +100,11 @@ async def _check_sub(sub: dict, bot, today) -> None:
 
 async def check_all(ctx) -> None:
     subs = await db.get_all_active()
+    today = datetime.now().date()
+    active_dates = {s["date"] for s in subs if datetime.strptime(s["date"], "%Y-%m-%d").date() >= today}
+    railway.purge_cache(active_dates)
     if not subs:
         return
-    today = datetime.now().date()
     await asyncio.gather(*[_check_sub(sub, ctx.bot, today) for sub in subs])
 
 

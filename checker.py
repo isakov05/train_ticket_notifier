@@ -88,6 +88,20 @@ class RailwayClient:
                 resp = await client.post(url, json=payload, headers=self._post_headers())
             return resp
 
+    def purge_cache(self, active_dates: set[str] | None = None) -> None:
+        """Remove stale and past-date entries from the trains cache."""
+        now = time.monotonic()
+        dead_keys = [
+            key for key, (fetched_at, _) in self._trains_cache.items()
+            if (now - fetched_at > _TRAINS_CACHE_TTL)
+            or (active_dates is not None and key[2] not in active_dates)
+        ]
+        for key in dead_keys:
+            self._trains_cache.pop(key, None)
+            self._cache_locks.pop(key, None)
+        if dead_keys:
+            logger.debug("Cache purged %d stale entries", len(dead_keys))
+
     async def get_trains(self, dep_code: str, arv_code: str, date: str) -> list[dict] | None:
         """Fetch trains for a route on a given date (date: YYYY-MM-DD).
 
