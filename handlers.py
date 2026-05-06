@@ -14,7 +14,7 @@ from telegram.ext import (
 )
 
 import db
-from checker import RailwayClient
+from checker import RailwayClient, build_snapshot
 from stations import search_stations
 
 _railway = RailwayClient()
@@ -414,6 +414,11 @@ async def handle_check_now(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> No
         parse_mode="HTML",
         disable_web_page_preview=True,
     )
+
+    new_snapshot = build_snapshot(trains)
+    old_snapshot = await db.get_snapshot(sub_id)
+    if new_snapshot != old_snapshot:
+        await db.save_snapshot(sub_id, new_snapshot)
 
 
 # ── /help ────────────────────────────────────────────────────────────────────
