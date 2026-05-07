@@ -41,6 +41,17 @@ ADMIN_COMMANDS = [
 ]
 
 
+async def _resolve_code(name: str) -> str | None:
+    results = await railway.search_stations(name)
+    if not results:
+        return None
+    name_lower = name.lower()
+    for s in results:
+        if s.get("name", "").lower() == name_lower:
+            return s["code"]
+    return results[0]["code"]
+
+
 async def _check_sub(sub: dict, bot, today) -> None:
     sub_date = datetime.strptime(sub["date"], "%Y-%m-%d").date()
 
@@ -60,6 +71,36 @@ async def _check_sub(sub: dict, bot, today) -> None:
 
     async with railway.bg_semaphore:
         trains = await railway.get_trains(sub["dep_code"], sub["arv_code"], sub["date"])
+
+    if trains == "invalid_route":
+        new_dep, new_arv = await asyncio.gather(
+            _resolve_code(sub["dep_name"]),
+            _resolve_code(sub["arv_name"]),
+        )
+        if new_dep and new_arv and (new_dep != sub["dep_code"] or new_arv != sub["arv_code"]):
+            logger.info(
+                "Auto-fixing codes for sub %s: %s→%s became %s→%s",
+                sub["id"], sub["dep_code"], sub["arv_code"], new_dep, new_arv,
+            )
+            await db.update_subscription_codes(sub["id"], new_dep, new_arv)
+            sub = {**sub, "dep_code": new_dep, "arv_code": new_arv}
+            async with railway.bg_semaphore:
+                trains = await railway.get_trains(new_dep, new_arv, sub["date"])
+
+        if trains == "invalid_route" or trains is None:
+            await db.deactivate(sub["id"])
+            try:
+                await bot.send_message(
+                    chat_id=sub["chat_id"],
+                    text=(
+                        f"Watch removed: {sub['dep_name']} → {sub['arv_name']} "
+                        f"on {sub_date.strftime('%d %B %Y')}.\n"
+                        "This route is no longer available on uzrailways."
+                    ),
+                )
+            except Exception:
+                pass
+            return
 
     if trains is None:
         logger.warning("Skipping snapshot update after failed railway check for subscription %s", sub["id"])

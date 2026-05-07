@@ -102,7 +102,7 @@ class RailwayClient:
         if dead_keys:
             logger.debug("Cache purged %d stale entries", len(dead_keys))
 
-    async def get_trains(self, dep_code: str, arv_code: str, date: str) -> list[dict] | None:
+    async def get_trains(self, dep_code: str, arv_code: str, date: str) -> list[dict] | str | None:
         """Fetch trains for a route on a given date (date: YYYY-MM-DD).
 
         Returns cached result if fresh, otherwise fetches from API.
@@ -164,8 +164,18 @@ class RailwayClient:
                 logger.error("Unexpected trains response shape for %s→%s on %s", dep_code, arv_code, date)
                 return None
             except httpx.HTTPStatusError as exc:
+                if exc.response.status_code == 400:
+                    logger.warning("HTTP 400 for %s→%s on %s — invalid route, deactivating", dep_code, arv_code, date)
+                    return "invalid_route"
                 logger.error("HTTP %s fetching trains %s→%s on %s", exc.response.status_code, dep_code, arv_code, date)
                 return None
+            except httpx.RemoteProtocolError:
+                # Server closed the keep-alive connection — reset client and retry silently
+                await self._reset_client()
+                delay = next(delays, None)
+                if delay is None:
+                    return None
+                await asyncio.sleep(delay)
             except Exception as exc:
                 delay = next(delays, None)
                 if delay is None:
@@ -195,6 +205,13 @@ class RailwayClient:
                     return None
                 logger.warning("Error searching stations (attempt %d, retrying in %ds): %s", attempt, delay, type(exc).__name__)
                 await asyncio.sleep(delay)
+
+    async def _reset_client(self) -> None:
+        if self._client:
+            await self._client.aclose()
+        self._client = None
+        self._xsrf = None
+        self._xsrf_fetched_at = 0.0
 
     async def close(self) -> None:
         if self._client:

@@ -59,6 +59,15 @@ async def upsert_user(user_id: int, username: str | None, first_name: str | None
         await db.commit()
 
 
+async def update_subscription_codes(sub_id: int, dep_code: str, arv_code: str) -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE subscriptions SET dep_code = ?, arv_code = ? WHERE id = ?",
+            (dep_code, arv_code, sub_id),
+        )
+        await db.commit()
+
+
 async def add_subscription(
     chat_id: int,
     user_id: int,
