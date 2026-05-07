@@ -240,7 +240,9 @@ _CAR_TYPE_ALIASES: dict[str, str] = {
     "umumiy": "general",
     "сиденье": "seat",
     "o'rindiq": "seat",
+    "o'rindiqli": "seat",
     "orindiq": "seat",
+    "orindiqli": "seat",
 }
 
 

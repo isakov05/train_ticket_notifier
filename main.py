@@ -83,24 +83,9 @@ async def _check_sub(sub: dict, bot, today) -> None:
                 sub["id"], sub["dep_code"], sub["arv_code"], new_dep, new_arv,
             )
             await db.update_subscription_codes(sub["id"], new_dep, new_arv)
-            sub = {**sub, "dep_code": new_dep, "arv_code": new_arv}
-            async with railway.bg_semaphore:
-                trains = await railway.get_trains(new_dep, new_arv, sub["date"])
-
-        if trains == "invalid_route" or trains is None:
-            await db.deactivate(sub["id"])
-            try:
-                await bot.send_message(
-                    chat_id=sub["chat_id"],
-                    text=(
-                        f"Watch removed: {sub['dep_name']} → {sub['arv_name']} "
-                        f"on {sub_date.strftime('%d %B %Y')}.\n"
-                        "This route is no longer available on uzrailways."
-                    ),
-                )
-            except Exception:
-                pass
-            return
+        else:
+            logger.warning("Sub %s got invalid_route for %s→%s, skipping this cycle", sub["id"], sub["dep_code"], sub["arv_code"])
+        return
 
     if trains is None:
         logger.warning("Skipping snapshot update after failed railway check for subscription %s", sub["id"])

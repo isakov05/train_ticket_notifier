@@ -12,3 +12,4 @@ __pycache__
 *.pywz
 *.pyzw
 tickets.db
+db_dump.txt
