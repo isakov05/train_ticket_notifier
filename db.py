@@ -36,6 +36,13 @@ async def init_db() -> None:
                 FOREIGN KEY (subscription_id) REFERENCES subscriptions(id)
             )
         """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS forward_map (
+                forwarded_msg_id INTEGER PRIMARY KEY,
+                original_chat_id INTEGER NOT NULL,
+                created_at       TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
         # Add blocked column if it doesn't exist (migration for existing DBs)
         try:
             await db.execute("ALTER TABLE users ADD COLUMN blocked INTEGER NOT NULL DEFAULT 0")
@@ -185,6 +192,28 @@ async def get_all_user_ids() -> list[int]:
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute("SELECT user_id FROM users") as cur:
             return [r[0] for r in await cur.fetchall()]
+
+
+async def save_forward_map(forwarded_msg_id: int, original_chat_id: int) -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT OR REPLACE INTO forward_map (forwarded_msg_id, original_chat_id) VALUES (?, ?)",
+            (forwarded_msg_id, original_chat_id),
+        )
+        await db.execute(
+            "DELETE FROM forward_map WHERE created_at < datetime('now', '-7 days')"
+        )
+        await db.commit()
+
+
+async def get_forward_chat(forwarded_msg_id: int) -> int | None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT original_chat_id FROM forward_map WHERE forwarded_msg_id = ?",
+            (forwarded_msg_id,),
+        ) as cur:
+            row = await cur.fetchone()
+    return row[0] if row else None
 
 
 async def save_snapshot(sub_id: int, snapshot: dict[str, dict[str, int]]) -> None:

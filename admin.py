@@ -117,6 +117,24 @@ async def cmd_broadcast(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 @admin_only
+async def cmd_sendmessage(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    parts = update.message.text.split(maxsplit=2)
+    if len(parts) < 3 or not parts[1].lstrip("-").isdigit():
+        await update.message.reply_text("Usage: /sendmessage <user_id> <message>")
+        return
+    user_id = int(parts[1])
+    text = parts[2]
+    try:
+        await ctx.bot.send_message(chat_id=user_id, text=text)
+        await update.message.reply_text(f"Sent to {user_id}.")
+    except Forbidden:
+        await db.set_user_blocked(user_id, True)
+        await update.message.reply_text(f"User {user_id} has blocked the bot.")
+    except Exception as exc:
+        await update.message.reply_text(f"Failed: {exc}")
+
+
+@admin_only
 async def cmd_removewatch(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     arg = update.message.text.partition(" ")[2].strip()
     if not arg.isdigit():
@@ -169,4 +187,5 @@ def admin_handlers() -> list:
         CommandHandler("broadcast", cmd_broadcast),
         CommandHandler("forcecheck", cmd_forcecheck),
         CommandHandler("removewatch", cmd_removewatch),
+        CommandHandler("sendmessage", cmd_sendmessage),
     ]

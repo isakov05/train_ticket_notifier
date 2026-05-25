@@ -118,6 +118,7 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 async def cmd_watch(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> int:
     user = update.effective_user
     await db.upsert_user(user.id, user.username, user.first_name)
+    ctx.user_data["_in_watch"] = True
     await update.message.reply_text(
         "Step 1/3 — Departure\n\n"
         "Type the departure city or station name:",

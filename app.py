@@ -42,6 +42,7 @@ ADMIN_COMMANDS = [
     BotCommand("broadcast", "Send message to all users"),
     BotCommand("forcecheck", "Trigger a ticket check now"),
     BotCommand("removewatch", "Remove a watch by ID"),
+    BotCommand("sendmessage", "Send message to a user by ID"),
 ]
 
 MIRROR_IGNORED_COMMANDS = {"/watch", "/list", "/help"}
@@ -173,8 +174,8 @@ async def mirror_user_message_to_admin(update: Update, ctx: ContextTypes.DEFAULT
     if message is None or user is None or chat is None or user.id == ADMIN_ID:
         return
 
-    # Skip messages that are part of the /watch conversation flow
-    if ctx.user_data.get("dep") is not None or ctx.user_data.get("dep_matches") is not None:
+    # Skip messages typed during the /watch conversation
+    if ctx.user_data.get("_in_watch"):
         return
 
     if message.text:
@@ -183,7 +184,7 @@ async def mirror_user_message_to_admin(update: Update, ctx: ContextTypes.DEFAULT
             return
 
     try:
-        await ctx.bot.forward_message(
+        forwarded = await ctx.bot.forward_message(
             chat_id=ADMIN_ID,
             from_chat_id=chat.id,
             message_id=message.message_id,
@@ -191,13 +192,38 @@ async def mirror_user_message_to_admin(update: Update, ctx: ContextTypes.DEFAULT
     except Exception as exc:
         logger.warning("Could not forward message %s from chat %s: %s", message.message_id, chat.id, exc)
         try:
-            await ctx.bot.copy_message(
+            forwarded = await ctx.bot.copy_message(
                 chat_id=ADMIN_ID,
                 from_chat_id=chat.id,
                 message_id=message.message_id,
             )
         except Exception as copy_exc:
             logger.error("Could not copy message %s from chat %s: %s", message.message_id, chat.id, copy_exc)
+            return
+
+    # Store mapping in DB so admin can reply back to this user after restarts
+    await db.save_forward_map(forwarded.message_id, chat.id)
+
+
+async def handle_admin_reply(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.effective_message
+    if message is None or update.effective_user.id != ADMIN_ID:
+        return
+    if message.reply_to_message is None:
+        return
+
+    original_chat_id = await db.get_forward_chat(message.reply_to_message.message_id)
+    if original_chat_id is None:
+        return
+
+    try:
+        await ctx.bot.copy_message(
+            chat_id=original_chat_id,
+            from_chat_id=message.chat_id,
+            message_id=message.message_id,
+        )
+    except Exception as exc:
+        logger.error("Failed to forward admin reply to chat %s: %s", original_chat_id, exc)
 
 
 async def post_init(app: Application) -> None:
@@ -227,6 +253,7 @@ def main() -> None:
     app.add_handler(CommandHandler("help", h.cmd_help))
     app.add_handler(CommandHandler("list", h.cmd_list))
     app.add_handler(MessageHandler(filters.ALL, mirror_user_message_to_admin), group=-1)
+    app.add_handler(MessageHandler(filters.Chat(ADMIN_ID) & filters.REPLY, handle_admin_reply))
     app.add_handler(h.watch_conversation())
     app.add_handler(CallbackQueryHandler(h.handle_remove, pattern=r"^remove:"))
     app.add_handler(CallbackQueryHandler(h.handle_check_now, pattern=r"^check:"))
