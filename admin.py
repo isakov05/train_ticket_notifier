@@ -67,7 +67,7 @@ async def cmd_watches(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         lines.append(label)
         for s in subs:
             dt = datetime.strptime(s["date"], "%Y-%m-%d")
-            lines.append(f"  • {s['dep_name']} → {s['arv_name']}  |  {dt.strftime('%d %b %Y')}")
+            lines.append(f"  • [{s['id']}] {s['dep_name']} → {s['arv_name']}  |  {dt.strftime('%d %b %Y')}")
         lines.append("")
 
     await _send_chunks(update, "\n".join(lines))
@@ -117,6 +117,27 @@ async def cmd_broadcast(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 @admin_only
+async def cmd_removewatch(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    arg = update.message.text.partition(" ")[2].strip()
+    if not arg.isdigit():
+        await update.message.reply_text("Usage: /removewatch <watch_id>")
+        return
+    sub_id = int(arg)
+    subs = await db.get_all_watches()
+    sub = next((s for s in subs if s["id"] == sub_id), None)
+    if sub is None:
+        await update.message.reply_text(f"Watch {sub_id} not found or already inactive.")
+        return
+    await db.deactivate(sub_id)
+    dt = datetime.strptime(sub["date"], "%Y-%m-%d")
+    await update.message.reply_text(
+        f"Watch {sub_id} removed.\n"
+        f"{sub['dep_name']} → {sub['arv_name']}  |  {dt.strftime('%d %b %Y')}\n"
+        f"User: {_user_label(sub)}"
+    )
+
+
+@admin_only
 async def cmd_forcecheck(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if _check_all is None:
         await update.message.reply_text("Force check not available.")
@@ -147,4 +168,5 @@ def admin_handlers() -> list:
         CommandHandler("users", cmd_users),
         CommandHandler("broadcast", cmd_broadcast),
         CommandHandler("forcecheck", cmd_forcecheck),
+        CommandHandler("removewatch", cmd_removewatch),
     ]

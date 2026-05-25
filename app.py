@@ -38,6 +38,7 @@ ADMIN_COMMANDS = [
     BotCommand("users", "Show bot users"),
     BotCommand("broadcast", "Send message to all users"),
     BotCommand("forcecheck", "Trigger a ticket check now"),
+    BotCommand("removewatch", "Remove a watch by ID"),
 ]
 
 
