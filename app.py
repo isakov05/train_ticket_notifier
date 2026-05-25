@@ -2,12 +2,15 @@ import asyncio
 import logging
 from datetime import datetime
 
-from telegram import BotCommand, BotCommandScopeChat, BotCommandScopeDefault
+from telegram import BotCommand, BotCommandScopeChat, BotCommandScopeDefault, Update
 from telegram.error import Forbidden
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
     CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
 )
 
 import admin as adm
@@ -40,6 +43,8 @@ ADMIN_COMMANDS = [
     BotCommand("forcecheck", "Trigger a ticket check now"),
     BotCommand("removewatch", "Remove a watch by ID"),
 ]
+
+MIRROR_IGNORED_COMMANDS = {"/watch", "/list", "/help"}
 
 
 async def _resolve_code(name: str) -> str | None:
@@ -125,6 +130,31 @@ async def _check_sub(sub: dict, bot, today) -> None:
         await db.save_snapshot(sub["id"], new_snapshot)
 
 
+async def _notify_admin_broken_watch(bot, sub: dict, exc: Exception) -> None:
+    text = (
+        "Broken watch during scheduled check\n\n"
+        f"Watch ID: {sub.get('id')}\n"
+        f"User ID: {sub.get('user_id')}\n"
+        f"Chat ID: {sub.get('chat_id')}\n"
+        f"Route: {sub.get('dep_name')} ({sub.get('dep_code')}) -> "
+        f"{sub.get('arv_name')} ({sub.get('arv_code')})\n"
+        f"Date: {sub.get('date')}\n"
+        f"Error: {type(exc).__name__}: {str(exc)[:500]}"
+    )
+    try:
+        await bot.send_message(chat_id=ADMIN_ID, text=text)
+    except Exception as notify_exc:
+        logger.error("Failed to notify admin about broken watch %s: %s", sub.get("id"), notify_exc)
+
+
+async def _check_sub_safe(sub: dict, bot, today) -> None:
+    try:
+        await _check_sub(sub, bot, today)
+    except Exception as exc:
+        logger.exception("Unexpected error checking subscription %s", sub.get("id"))
+        await _notify_admin_broken_watch(bot, sub, exc)
+
+
 async def check_all(ctx) -> None:
     subs = await db.get_all_active()
     today = datetime.now().date()
@@ -132,7 +162,42 @@ async def check_all(ctx) -> None:
     railway.purge_cache(active_dates)
     if not subs:
         return
-    await asyncio.gather(*[_check_sub(sub, ctx.bot, today) for sub in subs])
+    await asyncio.gather(*[_check_sub_safe(sub, ctx.bot, today) for sub in subs])
+
+
+async def mirror_user_message_to_admin(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.effective_message
+    user = update.effective_user
+    chat = update.effective_chat
+
+    if message is None or user is None or chat is None or user.id == ADMIN_ID:
+        return
+
+    # Skip messages that are part of the /watch conversation flow
+    if ctx.user_data.get("dep") is not None or ctx.user_data.get("dep_matches") is not None:
+        return
+
+    if message.text:
+        command = message.text.split(maxsplit=1)[0].split("@", 1)[0].lower()
+        if command in MIRROR_IGNORED_COMMANDS:
+            return
+
+    try:
+        await ctx.bot.forward_message(
+            chat_id=ADMIN_ID,
+            from_chat_id=chat.id,
+            message_id=message.message_id,
+        )
+    except Exception as exc:
+        logger.warning("Could not forward message %s from chat %s: %s", message.message_id, chat.id, exc)
+        try:
+            await ctx.bot.copy_message(
+                chat_id=ADMIN_ID,
+                from_chat_id=chat.id,
+                message_id=message.message_id,
+            )
+        except Exception as copy_exc:
+            logger.error("Could not copy message %s from chat %s: %s", message.message_id, chat.id, copy_exc)
 
 
 async def post_init(app: Application) -> None:
@@ -161,6 +226,7 @@ def main() -> None:
     app.add_handler(CommandHandler("start", h.cmd_start))
     app.add_handler(CommandHandler("help", h.cmd_help))
     app.add_handler(CommandHandler("list", h.cmd_list))
+    app.add_handler(MessageHandler(filters.ALL, mirror_user_message_to_admin), group=-1)
     app.add_handler(h.watch_conversation())
     app.add_handler(CallbackQueryHandler(h.handle_remove, pattern=r"^remove:"))
     app.add_handler(CallbackQueryHandler(h.handle_check_now, pattern=r"^check:"))
