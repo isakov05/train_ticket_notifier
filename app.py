@@ -43,6 +43,7 @@ ADMIN_COMMANDS = [
     BotCommand("forcecheck", "Trigger a ticket check now"),
     BotCommand("removewatch", "Remove a watch by ID"),
     BotCommand("sendmessage", "Send message to a user by ID"),
+    BotCommand("setinterval", "Change ticket check interval"),
 ]
 
 MIRROR_IGNORED_COMMANDS = {"/watch", "/list", "/help"}
@@ -261,7 +262,9 @@ def main() -> None:
     for handler in admin_handlers():
         app.add_handler(handler)
 
-    app.job_queue.run_repeating(check_all, interval=CHECK_INTERVAL, first=10)
+    job = app.job_queue.run_repeating(check_all, interval=CHECK_INTERVAL, first=10)
+    adm._check_job = job
+    adm._check_interval = CHECK_INTERVAL
 
     logger.info("Bot starting — checking every %ds", CHECK_INTERVAL)
     app.run_polling(drop_pending_updates=True)

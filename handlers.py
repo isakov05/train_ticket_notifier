@@ -13,11 +13,20 @@ from telegram.ext import (
     filters,
 )
 
+import admin as adm
 import db
 from checker import RailwayClient, _normalize_car_type
 from stations import search_stations
 
 _railway = RailwayClient()
+
+
+def _interval_str() -> str:
+    secs = adm._check_interval or 300
+    if secs < 60:
+        return f"{secs} second{'s' if secs != 1 else ''}"
+    mins = secs // 60
+    return f"{mins} minute{'s' if mins != 1 else ''}"
 
 
 async def _search_stations(query: str) -> list[tuple[str, str]]:
@@ -426,7 +435,7 @@ async def cmd_help(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         "/watch — add a new ticket watch\n"
         "/list  — your active watches\n"
         "/help  — this message\n\n"
-        "I check for new tickets every 5 minutes and notify you instantly."
+        f"I check for new tickets every {_interval_str()} and notify you instantly."
     )
 
 

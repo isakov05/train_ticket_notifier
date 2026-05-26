@@ -7,7 +7,7 @@ import httpx
 
 _RETRY_DELAYS = (2, 5)  # seconds between attempts: try, wait 2s, retry, wait 5s, retry
 _XSRF_TTL = 25 * 60  # refresh token proactively after 25 minutes
-_TRAINS_CACHE_TTL = 30  # seconds to cache train results per route+date
+_TRAINS_CACHE_TTL = 15  # seconds to cache train results per route+date
 
 logger = logging.getLogger(__name__)
 

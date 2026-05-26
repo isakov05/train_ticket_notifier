@@ -3,16 +3,18 @@ import functools
 import logging
 from datetime import datetime
 
-from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import Forbidden, TimedOut
-from telegram.ext import CommandHandler, ContextTypes
+from telegram.ext import CallbackQueryHandler, CommandHandler, ContextTypes
 
 import db
 from config import ADMIN_ID
 
 logger = logging.getLogger(__name__)
 
-_check_all = None  # set by main.py after init
+_check_all = None   # set by app.py after init
+_check_job = None   # set by app.py after init
+_check_interval = None  # current interval in seconds
 
 
 def admin_only(func):
@@ -73,22 +75,55 @@ async def cmd_watches(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     await _send_chunks(update, "\n".join(lines))
 
 
+_USERS_PAGE_SIZE = 15
+
+
+def _build_users_page(users: list[dict], page: int) -> tuple[str, InlineKeyboardMarkup]:
+    total = len(users)
+    active = sum(1 for u in users if not u.get("blocked"))
+    blocked = total - active
+    total_pages = max(1, (total + _USERS_PAGE_SIZE - 1) // _USERS_PAGE_SIZE)
+    page = max(0, min(page, total_pages - 1))
+
+    start = page * _USERS_PAGE_SIZE
+    page_users = users[start:start + _USERS_PAGE_SIZE]
+
+    lines = [f"Users: {total}  |  Active: {active}  |  Blocked: {blocked}  |  Page {page + 1}/{total_pages}\n"]
+    for u in page_users:
+        label = _user_label(u)
+        status = "blocked" if u.get("blocked") else "active"
+        lines.append(f"[{status}] {label}  W:{u['watch_count']}  {u['last_seen'][:10]}")
+
+    buttons = []
+    if page > 0:
+        buttons.append(InlineKeyboardButton("« Prev", callback_data=f"users_page:{page - 1}"))
+    if page < total_pages - 1:
+        buttons.append(InlineKeyboardButton("Next »", callback_data=f"users_page:{page + 1}"))
+
+    markup = InlineKeyboardMarkup([buttons]) if buttons else InlineKeyboardMarkup([])
+    return "\n".join(lines), markup
+
+
 @admin_only
 async def cmd_users(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     users = await db.get_all_users()
     if not users:
         await update.message.reply_text("No users yet.")
         return
+    text, markup = _build_users_page(users, 0)
+    await update.message.reply_text(text, reply_markup=markup)
 
-    lines = []
-    for u in users:
-        label = _user_label(u)
-        watches = u["watch_count"]
-        last = u["last_seen"][:10]
-        status = "blocked" if u.get("blocked") else "active"
-        lines.append(f"{label}  [{status}]\n  Watches: {watches}  |  Last seen: {last}")
 
-    await _send_chunks(update, "\n\n".join(lines))
+async def handle_users_page(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if update.effective_user.id != ADMIN_ID:
+        await query.answer()
+        return
+    page = int(query.data.split(":")[1])
+    users = await db.get_all_users()
+    text, markup = _build_users_page(users, page)
+    await query.answer()
+    await query.edit_message_text(text, reply_markup=markup)
 
 
 @admin_only
@@ -156,6 +191,29 @@ async def cmd_removewatch(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> Non
 
 
 @admin_only
+async def cmd_setinterval(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    global _check_job, _check_interval
+    arg = update.message.text.partition(" ")[2].strip()
+    if not arg.isdigit() or int(arg) < 15:
+        current = f"{_check_interval}s" if _check_interval else "unknown"
+        await update.message.reply_text(
+            f"Current interval: {current}\n"
+            "Usage: /setinterval <seconds>  (minimum 15)"
+        )
+        return
+    new_interval = int(arg)
+    if _check_job is None or _check_all is None:
+        await update.message.reply_text("Scheduler not available.")
+        return
+    _check_job.schedule_removal()
+    _check_job = ctx.application.job_queue.run_repeating(
+        _check_all, interval=new_interval, first=new_interval
+    )
+    _check_interval = new_interval
+    await update.message.reply_text(f"Check interval updated to {new_interval}s.")
+
+
+@admin_only
 async def cmd_forcecheck(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if _check_all is None:
         await update.message.reply_text("Force check not available.")
@@ -188,4 +246,6 @@ def admin_handlers() -> list:
         CommandHandler("forcecheck", cmd_forcecheck),
         CommandHandler("removewatch", cmd_removewatch),
         CommandHandler("sendmessage", cmd_sendmessage),
+        CommandHandler("setinterval", cmd_setinterval),
+        CallbackQueryHandler(handle_users_page, pattern=r"^users_page:"),
     ]
