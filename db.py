@@ -121,6 +121,28 @@ async def deactivate(sub_id: int) -> None:
         await db.commit()
 
 
+async def activate(sub_id: int) -> bool:
+    """Set subscription active=1. Returns True if the row existed."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute(
+            "UPDATE subscriptions SET active = 1 WHERE id = ?", (sub_id,)
+        )
+        await db.commit()
+        return cur.rowcount > 0
+
+
+async def get_subscription(sub_id: int) -> dict | None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT s.*, u.username, u.first_name FROM subscriptions s "
+            "LEFT JOIN users u ON s.user_id = u.user_id WHERE s.id = ?",
+            (sub_id,),
+        ) as cur:
+            row = await cur.fetchone()
+    return dict(row) if row else None
+
+
 async def get_snapshot(sub_id: int) -> dict[str, dict[str, int]]:
     """Returns {train_number: {car_type: free_seats}}."""
     async with aiosqlite.connect(DB_PATH) as db:

@@ -16,6 +16,7 @@ from telegram.ext import (
 import admin as adm
 import db
 from checker import RailwayClient, _normalize_car_type
+from config import TZ
 from stations import search_stations
 
 _railway = RailwayClient()
@@ -59,7 +60,7 @@ def _h(value: object) -> str:
 
 
 def _date_example() -> str:
-    return (datetime.now() + timedelta(days=7)).strftime("%d.%m.%Y")
+    return (datetime.now(TZ) + timedelta(days=7)).strftime("%d.%m.%Y")
 
 
 def _seat_label(count: int) -> str:
@@ -243,7 +244,7 @@ async def handle_date(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> int:
         )
         return ENTER_DATE
 
-    if dt.date() < datetime.now().date():
+    if dt.date() < datetime.now(TZ).date():
         await update.message.reply_text(
             "That date is in the past. Please enter a future date:",
             reply_markup=InlineKeyboardMarkup([[

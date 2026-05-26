@@ -18,7 +18,7 @@ import db
 import handlers as h
 from admin import admin_handlers
 from checker import RailwayClient, build_snapshot, diff_snapshots
-from config import ADMIN_ID, BOT_TOKEN, CHECK_INTERVAL
+from config import ADMIN_ID, BOT_TOKEN, CHECK_INTERVAL, TZ
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -42,6 +42,7 @@ ADMIN_COMMANDS = [
     BotCommand("broadcast", "Send message to all users"),
     BotCommand("forcecheck", "Trigger a ticket check now"),
     BotCommand("removewatch", "Remove a watch by ID"),
+    BotCommand("activatewatch", "Activate a watch by ID"),
     BotCommand("sendmessage", "Send message to a user by ID"),
     BotCommand("setinterval", "Change ticket check interval"),
 ]
@@ -159,7 +160,7 @@ async def _check_sub_safe(sub: dict, bot, today) -> None:
 
 async def check_all(ctx) -> None:
     subs = await db.get_all_active()
-    today = datetime.now().date()
+    today = datetime.now(TZ).date()
     active_dates = {s["date"] for s in subs if datetime.strptime(s["date"], "%Y-%m-%d").date() >= today}
     railway.purge_cache(active_dates)
     if not subs:

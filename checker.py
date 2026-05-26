@@ -7,7 +7,7 @@ import httpx
 
 _RETRY_DELAYS = (2, 5)  # seconds between attempts: try, wait 2s, retry, wait 5s, retry
 _XSRF_TTL = 25 * 60  # refresh token proactively after 25 minutes
-_TRAINS_CACHE_TTL = 15  # seconds to cache train results per route+date
+_TRAINS_CACHE_TTL = 20  # seconds to cache train results per route+date
 
 logger = logging.getLogger(__name__)
 
@@ -165,8 +165,13 @@ class RailwayClient:
                 return None
             except httpx.HTTPStatusError as exc:
                 if exc.response.status_code == 400:
-                    logger.warning("HTTP 400 for %s→%s on %s — invalid route, deactivating", dep_code, arv_code, date)
+                    logger.warning("HTTP 400 for %s→%s on %s — invalid route", dep_code, arv_code, date)
                     return "invalid_route"
+                if exc.response.status_code == 429:
+                    retry_after = int(exc.response.headers.get("Retry-After", 10))
+                    logger.warning("HTTP 429 for %s→%s on %s — retrying in %ds", dep_code, arv_code, date, retry_after)
+                    await asyncio.sleep(retry_after)
+                    continue
                 logger.error("HTTP %s fetching trains %s→%s on %s", exc.response.status_code, dep_code, arv_code, date)
                 return None
             except httpx.RemoteProtocolError:

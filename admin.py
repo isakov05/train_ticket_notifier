@@ -139,6 +139,7 @@ async def cmd_broadcast(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     for user_id in user_ids:
         try:
             await ctx.bot.send_message(chat_id=user_id, text=text)
+            await db.set_user_blocked(user_id, False)
             sent += 1
         except Forbidden:
             await db.set_user_blocked(user_id, True)
@@ -185,6 +186,29 @@ async def cmd_removewatch(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> Non
     dt = datetime.strptime(sub["date"], "%Y-%m-%d")
     await update.message.reply_text(
         f"Watch {sub_id} removed.\n"
+        f"{sub['dep_name']} → {sub['arv_name']}  |  {dt.strftime('%d %b %Y')}\n"
+        f"User: {_user_label(sub)}"
+    )
+
+
+@admin_only
+async def cmd_activatewatch(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    arg = update.message.text.partition(" ")[2].strip()
+    if not arg.isdigit():
+        await update.message.reply_text("Usage: /activatewatch <watch_id>")
+        return
+    sub_id = int(arg)
+    sub = await db.get_subscription(sub_id)
+    if sub is None:
+        await update.message.reply_text(f"Watch {sub_id} not found.")
+        return
+    if sub["active"]:
+        await update.message.reply_text(f"Watch {sub_id} is already active.")
+        return
+    await db.activate(sub_id)
+    dt = datetime.strptime(sub["date"], "%Y-%m-%d")
+    await update.message.reply_text(
+        f"Watch {sub_id} activated.\n"
         f"{sub['dep_name']} → {sub['arv_name']}  |  {dt.strftime('%d %b %Y')}\n"
         f"User: {_user_label(sub)}"
     )
@@ -246,6 +270,7 @@ def admin_handlers() -> list:
         CommandHandler("forcecheck", cmd_forcecheck),
         CommandHandler("removewatch", cmd_removewatch),
         CommandHandler("sendmessage", cmd_sendmessage),
+        CommandHandler("activatewatch", cmd_activatewatch),
         CommandHandler("setinterval", cmd_setinterval),
         CallbackQueryHandler(handle_users_page, pattern=r"^users_page:"),
     ]
