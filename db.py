@@ -43,12 +43,16 @@ async def init_db() -> None:
                 created_at       TEXT NOT NULL DEFAULT (datetime('now'))
             )
         """)
-        # Add blocked column if it doesn't exist (migration for existing DBs)
-        try:
-            await db.execute("ALTER TABLE users ADD COLUMN blocked INTEGER NOT NULL DEFAULT 0")
-            await db.commit()
-        except Exception:
-            pass
+        # Migrations for existing DBs
+        for migration in [
+            "ALTER TABLE users ADD COLUMN blocked INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE users ADD COLUMN language TEXT NOT NULL DEFAULT 'en'",
+        ]:
+            try:
+                await db.execute(migration)
+                await db.commit()
+            except Exception:
+                pass
         await db.commit()
 
 
@@ -108,9 +112,12 @@ async def get_user_subscriptions(user_id: int) -> list[dict]:
 async def get_all_active() -> list[dict]:
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT * FROM subscriptions WHERE active = 1"
-        ) as cur:
+        async with db.execute("""
+            SELECT s.*, COALESCE(u.language, 'en') AS language
+            FROM subscriptions s
+            LEFT JOIN users u ON s.user_id = u.user_id
+            WHERE s.active = 1
+        """) as cur:
             return [dict(r) for r in await cur.fetchall()]
 
 
@@ -185,6 +192,24 @@ async def get_all_watches() -> list[dict]:
             ORDER BY u.username, s.date
         """) as cur:
             return [dict(r) for r in await cur.fetchall()]
+
+
+async def set_user_language(user_id: int, language: str) -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE users SET language = ? WHERE user_id = ?",
+            (language, user_id),
+        )
+        await db.commit()
+
+
+async def get_user_language(user_id: int) -> str:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT language FROM users WHERE user_id = ?", (user_id,)
+        ) as cur:
+            row = await cur.fetchone()
+    return row[0] if row else "en"
 
 
 async def set_user_blocked(user_id: int, blocked: bool) -> None:

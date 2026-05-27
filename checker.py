@@ -235,11 +235,11 @@ _CAR_TYPE_ALIASES: dict[str, str] = {
     # Coupe
     "купе": "coupe",
     "kupe": "coupe",
-    # Lux / SV
+    # Lux
     "люкс": "lux",
     "lyuks": "lux",
-    "св": "lux",
-    "sv": "lux",
+    # SV
+    "св": "sv",
     # General / Sitting
     "общий": "general",
     "umumiy": "general",

@@ -19,6 +19,7 @@ import handlers as h
 from admin import admin_handlers
 from checker import RailwayClient, build_snapshot, diff_snapshots
 from config import ADMIN_ID, BOT_TOKEN, CHECK_INTERVAL, TZ
+from translations import t
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -32,6 +33,7 @@ USER_COMMANDS = [
     BotCommand("watch", "Add a new ticket watch"),
     BotCommand("list", "Show your active watches"),
     BotCommand("help", "Show help"),
+    BotCommand("language", "Change language / Tildi ózgertiriw"),
 ]
 
 ADMIN_COMMANDS = [
@@ -47,7 +49,7 @@ ADMIN_COMMANDS = [
     BotCommand("setinterval", "Change ticket check interval"),
 ]
 
-MIRROR_IGNORED_COMMANDS = {"/watch", "/list", "/help"}
+MIRROR_IGNORED_COMMANDS = {"/watch", "/list", "/help", "/language"}
 
 
 async def _resolve_code(name: str) -> str | None:
@@ -64,15 +66,16 @@ async def _resolve_code(name: str) -> str | None:
 async def _check_sub(sub: dict, bot, today) -> None:
     sub_date = datetime.strptime(sub["date"], "%Y-%m-%d").date()
 
+    lang = sub.get("language", "en")
+
     if sub_date < today:
         await db.deactivate(sub["id"])
         try:
             await bot.send_message(
                 chat_id=sub["chat_id"],
-                text=(
-                    f"Watch expired: {sub['dep_name']} → {sub['arv_name']} "
-                    f"on {sub_date.strftime('%d %B %Y')}."
-                ),
+                text=t("watch_expired", lang,
+                       dep=sub["dep_name"], arv=sub["arv_name"],
+                       date=sub_date.strftime("%d %B %Y")),
             )
         except Exception:
             pass
@@ -107,13 +110,13 @@ async def _check_sub(sub: dict, bot, today) -> None:
     if changes:
         sep = "─" * 22
         text = (
-            f"Tickets available!\n\n"
+            f"{t('tickets_available', lang)}\n\n"
             f"<b>{sub['dep_name']} → {sub['arv_name']}</b>\n"
             f"{sub_date.strftime('%d %B %Y')}\n"
             f"{sep}\n"
             + "\n\n".join(changes)
             + f"\n\n{sep}\n"
-            f'<a href="https://eticket.railway.uz">Book tickets</a>'
+            f'<a href="https://eticket.railway.uz">{t("book_tickets", lang)}</a>'
         )
         try:
             await bot.send_message(
@@ -254,6 +257,8 @@ def main() -> None:
     app.add_handler(CommandHandler("start", h.cmd_start))
     app.add_handler(CommandHandler("help", h.cmd_help))
     app.add_handler(CommandHandler("list", h.cmd_list))
+    app.add_handler(CommandHandler("language", h.cmd_language))
+    app.add_handler(CallbackQueryHandler(h.handle_setlang, pattern=r"^setlang:"))
     app.add_handler(MessageHandler(filters.ALL, mirror_user_message_to_admin), group=-1)
     app.add_handler(MessageHandler(filters.Chat(ADMIN_ID) & filters.REPLY, handle_admin_reply))
     app.add_handler(h.watch_conversation())
