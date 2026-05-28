@@ -273,6 +273,18 @@ def build_snapshot(trains: list[dict]) -> dict[str, dict[str, int]]:
     return snapshot
 
 
+def _berth_detail_str(seat_detail: dict) -> str:
+    mapping = [
+        ("down",      "lower"),
+        ("up",        "upper"),
+        ("lateralDn", "bokovoy lower"),
+        ("lateralUp", "bokovoy upper"),
+    ]
+    parts = [f"{label}: {int(seat_detail.get(k) or 0)}"
+             for k, label in mapping if int(seat_detail.get(k) or 0) > 0]
+    return " · ".join(parts)
+
+
 def diff_snapshots(
     old: dict[str, dict[str, int]],
     new: dict[str, dict[str, int]],
@@ -306,6 +318,16 @@ def diff_snapshots(
         arv_time = meta.get("arrivalDate", "")
         duration = meta.get("timeOnWay", "")
 
+        # Build per-car-type seatDetail lookup from the raw train data
+        car_detail: dict[str, dict] = {}
+        for c in meta.get("cars", []):
+            ct = _normalize_car_type(str(c.get("type", "unknown")))
+            sd = c.get("seatDetail") or {}
+            if ct not in car_detail:
+                car_detail[ct] = {"down": 0, "up": 0, "lateralDn": 0, "lateralUp": 0}
+            for k in ("down", "up", "lateralDn", "lateralUp"):
+                car_detail[ct][k] += int(sd.get(k) or 0)
+
         time_str = ""
         if dep_time and arv_time:
             time_str = f"{dep_time} → {arv_time}"
@@ -313,7 +335,13 @@ def diff_snapshots(
                 time_str += f"  ({duration} travel time)"
 
         header = f"Train {train_num}" + (f"\n  {time_str}" if time_str else "")
-        seat_lines = [f"  • {ct}: {seats} seats" for ct, seats in newly_available.items()]
+        seat_lines = []
+        for ct, seats in newly_available.items():
+            line = f"  • {ct}: {seats} seats"
+            detail = _berth_detail_str(car_detail.get(ct, {}))
+            if detail:
+                line += f"\n    {detail}"
+            seat_lines.append(line)
         messages.append(header + "\n" + "\n".join(seat_lines))
 
     return messages

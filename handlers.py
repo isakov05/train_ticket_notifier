@@ -101,6 +101,21 @@ def _free_seats(car: dict) -> int:
         return 0
 
 
+def _format_berth_detail(seat_detail: dict, lang: str) -> str:
+    parts = []
+    mapping = [
+        ("down",      "berth_lower"),
+        ("up",        "berth_upper"),
+        ("lateralDn", "berth_bokovoy_lower"),
+        ("lateralUp", "berth_bokovoy_upper"),
+    ]
+    for key, label_key in mapping:
+        count = int(seat_detail.get(key) or 0)
+        if count > 0:
+            parts.append(f"{t(label_key, lang)}: {count}")
+    return " · ".join(parts)
+
+
 def _format_train_html(train: dict, lang: str = "en") -> str:
     number = _h(str(train.get("number", "")).strip() or "?")
     dep_time = _h(train.get("departureDate", ""))
@@ -112,20 +127,28 @@ def _format_train_html(train: dict, lang: str = "en") -> str:
     if duration:
         time_str += f"   ({duration})"
 
-    merged: dict[str, int] = {}
+    # Merge cars of same type, accumulating seatDetail counts
+    merged_seats: dict[str, int] = {}
+    merged_detail: dict[str, dict] = {}
     for c in cars:
         car_type = _normalize_car_type(str(c.get("type", "unknown")))
         free = _free_seats(c)
-        if free > 0:
-            merged[car_type] = merged.get(car_type, 0) + free
-    available = list(merged.items())
+        if free <= 0:
+            continue
+        merged_seats[car_type] = merged_seats.get(car_type, 0) + free
+        sd = c.get("seatDetail") or {}
+        if car_type not in merged_detail:
+            merged_detail[car_type] = {"down": 0, "up": 0, "lateralDn": 0, "lateralUp": 0}
+        for k in ("down", "up", "lateralDn", "lateralUp"):
+            merged_detail[car_type][k] += int(sd.get(k) or 0)
 
     lines = [f"<b>Train {number}</b>   {time_str}".strip()]
-    if available:
-        lines.extend(
-            f"  {_h(car_type)}: <b>{seats}</b> {_seat_label(seats, lang)}"
-            for car_type, seats in available
-        )
+    if merged_seats:
+        for car_type, seats in merged_seats.items():
+            lines.append(f"  {_h(car_type)}: <b>{seats}</b> {_seat_label(seats, lang)}")
+            detail_str = _format_berth_detail(merged_detail.get(car_type, {}), lang)
+            if detail_str:
+                lines.append(f"    {detail_str}")
     else:
         lines.append(f"  {t('no_seats', lang)}")
 

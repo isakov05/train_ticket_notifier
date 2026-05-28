@@ -58,6 +58,11 @@ STRINGS: dict[str, dict[str, str]] = {
         # seat labels
         "seat_one": "seat",
         "seat_many": "seats",
+        # berth position labels
+        "berth_lower": "lower",
+        "berth_upper": "upper",
+        "berth_bokovoy_lower": "bokovoy lower",
+        "berth_bokovoy_upper": "bokovoy upper",
         # buttons
         "btn_cancel": "Cancel",
         "btn_back": "Back",
@@ -129,6 +134,11 @@ STRINGS: dict[str, dict[str, str]] = {
         # seat labels
         "seat_one": "orın",
         "seat_many": "orın",
+        # berth position labels
+        "berth_lower": "Tómengi",
+        "berth_upper": "Joqarı",
+        "berth_bokovoy_lower": "Bokovoy tómengi",
+        "berth_bokovoy_upper": "Bokovoy joqarı",
         # buttons
         "btn_cancel": "Biykar etiw",
         "btn_back": "Artqa",
