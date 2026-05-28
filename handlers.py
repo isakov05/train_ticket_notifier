@@ -1,3 +1,4 @@
+import functools
 import logging
 from datetime import datetime, timedelta
 from html import escape
@@ -37,6 +38,19 @@ async def _search_stations(query: str) -> list[tuple[str, str]]:
     if results:
         return [(s["name"].title(), s["code"]) for s in results]
     return search_stations(query)
+
+
+def not_banned(func):
+    @functools.wraps(func)
+    async def wrapper(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+        user = update.effective_user
+        if user and await db.is_user_banned(user.id):
+            msg = update.message or (update.callback_query.message if update.callback_query else None)
+            if msg:
+                await msg.reply_text("You are banned from using this bot. Contact the admin.")
+            return ConversationHandler.END
+        return await func(update, ctx)
+    return wrapper
 
 
 async def _lang(ctx: ContextTypes.DEFAULT_TYPE, user_id: int) -> str:
@@ -123,10 +137,12 @@ _SEP = "─" * 22
 
 # ── /start ──────────────────────────────────────────────────────────────────
 
+@not_banned
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     chat_id = update.effective_chat.id
     await db.upsert_user(user.id, user.username, user.first_name)
+    await db.set_user_blocked(user.id, False)
     lang = await _lang(ctx, user.id)
     await update.message.reply_text(
         t("start", lang, name=_h(user.first_name), chat_id=chat_id),
@@ -136,6 +152,7 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 # ── /language ────────────────────────────────────────────────────────────────
 
+@not_banned
 async def cmd_language(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     lang = await _lang(ctx, update.effective_user.id)
     keyboard = InlineKeyboardMarkup([[
@@ -156,6 +173,7 @@ async def handle_setlang(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
 
 # ── /watch conversation ──────────────────────────────────────────────────────
 
+@not_banned
 async def cmd_watch(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> int:
     user = update.effective_user
     await db.upsert_user(user.id, user.username, user.first_name)
@@ -367,6 +385,7 @@ async def cmd_cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> int:
 
 # ── /list ────────────────────────────────────────────────────────────────────
 
+@not_banned
 async def cmd_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     lang = await _lang(ctx, update.effective_user.id)
     subs = await db.get_user_subscriptions(update.effective_user.id)
@@ -456,6 +475,7 @@ async def handle_check_now(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> No
 
 # ── /help ────────────────────────────────────────────────────────────────────
 
+@not_banned
 async def cmd_help(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     lang = await _lang(ctx, update.effective_user.id)
     await update.message.reply_text(t("help", lang, interval=_interval_str()))

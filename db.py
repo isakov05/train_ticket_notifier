@@ -47,6 +47,7 @@ async def init_db() -> None:
         for migration in [
             "ALTER TABLE users ADD COLUMN blocked INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE users ADD COLUMN language TEXT NOT NULL DEFAULT 'en'",
+            "ALTER TABLE users ADD COLUMN banned INTEGER NOT NULL DEFAULT 0",
         ]:
             try:
                 await db.execute(migration)
@@ -192,6 +193,24 @@ async def get_all_watches() -> list[dict]:
             ORDER BY u.username, s.date
         """) as cur:
             return [dict(r) for r in await cur.fetchall()]
+
+
+async def set_user_banned(user_id: int, banned: bool) -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE users SET banned = ? WHERE user_id = ?",
+            (1 if banned else 0, user_id),
+        )
+        await db.commit()
+
+
+async def is_user_banned(user_id: int) -> bool:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT banned FROM users WHERE user_id = ?", (user_id,)
+        ) as cur:
+            row = await cur.fetchone()
+    return bool(row and row[0])
 
 
 async def set_user_language(user_id: int, language: str) -> None:

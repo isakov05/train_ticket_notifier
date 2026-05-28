@@ -162,6 +162,7 @@ async def cmd_sendmessage(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> Non
     text = parts[2]
     try:
         await ctx.bot.send_message(chat_id=user_id, text=text)
+        await db.set_user_blocked(user_id, False)
         await update.message.reply_text(f"Sent to {user_id}.")
     except Forbidden:
         await db.set_user_blocked(user_id, True)
@@ -189,6 +190,28 @@ async def cmd_removewatch(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> Non
         f"{sub['dep_name']} → {sub['arv_name']}  |  {dt.strftime('%d %b %Y')}\n"
         f"User: {_user_label(sub)}"
     )
+
+
+@admin_only
+async def cmd_banuser(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    arg = update.message.text.partition(" ")[2].strip()
+    if not arg.lstrip("-").isdigit():
+        await update.message.reply_text("Usage: /banuser <user_id>")
+        return
+    user_id = int(arg)
+    await db.set_user_banned(user_id, True)
+    await update.message.reply_text(f"User {user_id} banned.")
+
+
+@admin_only
+async def cmd_unbanuser(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    arg = update.message.text.partition(" ")[2].strip()
+    if not arg.lstrip("-").isdigit():
+        await update.message.reply_text("Usage: /unbanuser <user_id>")
+        return
+    user_id = int(arg)
+    await db.set_user_banned(user_id, False)
+    await update.message.reply_text(f"User {user_id} unbanned.")
 
 
 @admin_only
@@ -270,6 +293,8 @@ def admin_handlers() -> list:
         CommandHandler("forcecheck", cmd_forcecheck),
         CommandHandler("removewatch", cmd_removewatch),
         CommandHandler("sendmessage", cmd_sendmessage),
+        CommandHandler("banuser", cmd_banuser),
+        CommandHandler("unbanuser", cmd_unbanuser),
         CommandHandler("activatewatch", cmd_activatewatch),
         CommandHandler("setinterval", cmd_setinterval),
         CallbackQueryHandler(handle_users_page, pattern=r"^users_page:"),

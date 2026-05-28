@@ -45,6 +45,8 @@ ADMIN_COMMANDS = [
     BotCommand("forcecheck", "Trigger a ticket check now"),
     BotCommand("removewatch", "Remove a watch by ID"),
     BotCommand("activatewatch", "Activate a watch by ID"),
+    BotCommand("banuser", "Ban a user from the bot"),
+    BotCommand("unbanuser", "Unban a user"),
     BotCommand("sendmessage", "Send message to a user by ID"),
     BotCommand("setinterval", "Change ticket check interval"),
 ]
