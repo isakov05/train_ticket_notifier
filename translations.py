@@ -22,10 +22,10 @@ STRINGS: dict[str, dict[str, str]] = {
         "language_choose": "Choose your language:",
         "language_set": "Language set to English.",
         # /watch steps
-        "watch_step1": "Step 1/3 — Departure\n\nType the departure city or station name:",
-        "watch_step2": "Step 2/3 — Arrival\n\nType the arrival city or station name:",
-        "watch_step2_with_dep": "Step 2/3 — Arrival\n\nDeparture: {dep_name}\n\nType the arrival city or station name:",
-        "watch_step3": "Step 3/3 — Date\n\nRoute: {dep} → {arv}\n\nEnter the travel date in DD.MM.YYYY format\n(e.g. {example}):",
+        "watch_step1": "Step 1/4 — Departure\n\nType the departure city or station name:",
+        "watch_step2": "Step 2/4 — Arrival\n\nType the arrival city or station name:",
+        "watch_step2_with_dep": "Step 2/4 — Arrival\n\nDeparture: {dep_name}\n\nType the arrival city or station name:",
+        "watch_step3": "Step 3/4 — Date\n\nRoute: {dep} → {arv}\n\nEnter the travel date in DD.MM.YYYY format\n(e.g. {example}):",
         "dep_selected": "Departure: {name}",
         "arv_selected": "Arrival: {name}",
         "no_stations": "No stations found. Try a different spelling (e.g. Toshkent, Samarqand):",
@@ -39,7 +39,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "watch_added": (
             "Watch added!\n\n"
             "{dep} → {arv}\n"
-            "Date: {date}\n\n"
+            "Date: {date}\n"
+            "Car types: {filter}\n\n"
             "You will be notified when tickets become available. (ID: {id})\n"
             "Use /list to see all your watches."
         ),
@@ -63,6 +64,13 @@ STRINGS: dict[str, dict[str, str]] = {
         "berth_upper": "upper",
         "berth_bokovoy_lower": "bokovoy lower",
         "berth_bokovoy_upper": "bokovoy upper",
+        # car type filter
+        "filter_step": "Step 4/4 — Car types\n\nSelect the car types to watch:\n(tap to toggle on/off)",
+        "filter_none_selected": "Select at least one car type.",
+        "filter_any_label": "Any type",
+        "btn_filter_confirm": "✓ Confirm",
+        "btn_filter_any": "Any (all types)",
+        "btn_edit_filter": "Edit filter",
         # buttons
         "btn_cancel": "Cancel",
         "btn_back": "Back",
@@ -98,10 +106,10 @@ STRINGS: dict[str, dict[str, str]] = {
         "language_choose": "Tilińizdi tańlań:",
         "language_set": "Til Qaraqalpaq tiline ózgertirildi.",
         # /watch steps
-        "watch_step1": "1/3-qadem — Ketiw stanciyası\n\nKetiw qalası yaki stanciya atın jazıń:",
-        "watch_step2": "2/3-qadem — Keliw stanciyası\n\nKeliw qalası yaki stanciya atın jazıń:",
-        "watch_step2_with_dep": "2/3-qadem — Keliw stanciyası\n\nKetiw: {dep_name}\n\nKeliw qalası yaki stanciya atın jazıń:",
-        "watch_step3": "3/3-qadem — Sáne\n\nJónelis: {dep} → {arv}\n\nKetiw sánesin DD.MM.YYYY formatında jazıń\n(mısalı: {example}):",
+        "watch_step1": "1/4-qadem — Ketiw stanciyası\n\nKetiw qalası yaki stanciya atın jazıń:",
+        "watch_step2": "2/4-qadem — Keliw stanciyası\n\nKeliw qalası yaki stanciya atın jazıń:",
+        "watch_step2_with_dep": "2/4-qadem — Keliw stanciyası\n\nKetiw: {dep_name}\n\nKeliw qalası yaki stanciya atın jazıń:",
+        "watch_step3": "3/4-qadem — Sáne\n\nJónelis: {dep} → {arv}\n\nKetiw sánesin DD.MM.YYYY formatında jazıń\n(mısalı: {example}):",
         "dep_selected": "Ketiw: {name}",
         "arv_selected": "Keliw: {name}",
         "no_stations": "Stanciyalar tabılmadı. Basqa jazılıwın sınap kóriń (mısalı: Toshkent, Nukus):",
@@ -115,7 +123,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "watch_added": (
             "Baqlaw qosıldı!\n\n"
             "{dep} → {arv}\n"
-            "Sáne: {date}\n\n"
+            "Sáne: {date}\n"
+            "Vagon túrleri: {filter}\n\n"
             "Jańf biletler payda bolğanda xabar beremen. (ID: {id})\n"
             "Barlıq baqławlarıńızdı kóriw ushın /list isletiń."
         ),
@@ -139,6 +148,13 @@ STRINGS: dict[str, dict[str, str]] = {
         "berth_upper": "Joqarı",
         "berth_bokovoy_lower": "Bokovoy tómengi",
         "berth_bokovoy_upper": "Bokovoy joqarı",
+        # car type filter
+        "filter_step": "4/4-qadem — Vagon túrleri\n\nQaysi vagon túrlerini baqlaw kerek?\n(basıp belgileń yamasa alıń)",
+        "filter_none_selected": "Keminde bir vagon túrin tańlań.",
+        "filter_any_label": "Hámme túrler",
+        "btn_filter_confirm": "✓ Tastıyıqlaw",
+        "btn_filter_any": "Hámme túrler (barlıǵı)",
+        "btn_edit_filter": "Filterdi ózgertiriw",
         # buttons
         "btn_cancel": "Biykar etiw",
         "btn_back": "Artqa",

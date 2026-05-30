@@ -289,6 +289,7 @@ def diff_snapshots(
     old: dict[str, dict[str, int]],
     new: dict[str, dict[str, int]],
     trains: list[dict],
+    car_filter: list[str] | None = None,
 ) -> list[str]:
     """Return notification lines for newly available tickets.
 
@@ -307,7 +308,9 @@ def diff_snapshots(
         newly_available = {
             ct: seats
             for ct, seats in new_cars.items()
-            if seats > 0 and (is_new_train or old_cars.get(ct, 0) == 0)
+            if seats > 0
+            and (is_new_train or old_cars.get(ct, 0) == 0)
+            and (car_filter is None or ct in car_filter)
         }
 
         if not newly_available:

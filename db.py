@@ -48,6 +48,7 @@ async def init_db() -> None:
             "ALTER TABLE users ADD COLUMN blocked INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE users ADD COLUMN language TEXT NOT NULL DEFAULT 'en'",
             "ALTER TABLE users ADD COLUMN banned INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE subscriptions ADD COLUMN car_filter TEXT",
         ]:
             try:
                 await db.execute(migration)
@@ -88,16 +89,26 @@ async def add_subscription(
     arv_code: str,
     arv_name: str,
     date: str,
+    car_filter: str | None = None,
 ) -> int:
     async with aiosqlite.connect(DB_PATH) as db:
         cursor = await db.execute(
             """INSERT INTO subscriptions
-               (chat_id, user_id, dep_code, dep_name, arv_code, arv_name, date)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (chat_id, user_id, dep_code, dep_name, arv_code, arv_name, date),
+               (chat_id, user_id, dep_code, dep_name, arv_code, arv_name, date, car_filter)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (chat_id, user_id, dep_code, dep_name, arv_code, arv_name, date, car_filter),
         )
         await db.commit()
         return cursor.lastrowid
+
+
+async def update_subscription_filter(sub_id: int, car_filter: str | None) -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE subscriptions SET car_filter = ? WHERE id = ?",
+            (car_filter, sub_id),
+        )
+        await db.commit()
 
 
 async def get_user_subscriptions(user_id: int) -> list[dict]:

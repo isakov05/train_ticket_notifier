@@ -107,7 +107,9 @@ async def _check_sub(sub: dict, bot, today) -> None:
 
     new_snapshot = build_snapshot(trains)
     old_snapshot = await db.get_snapshot(sub["id"])
-    changes = diff_snapshots(old_snapshot, new_snapshot, trains)
+    car_filter_str = sub.get("car_filter")
+    car_filter = car_filter_str.split(",") if car_filter_str else None
+    changes = diff_snapshots(old_snapshot, new_snapshot, trains, car_filter)
 
     if changes:
         sep = "─" * 22
@@ -266,6 +268,11 @@ def main() -> None:
     app.add_handler(h.watch_conversation())
     app.add_handler(CallbackQueryHandler(h.handle_remove, pattern=r"^remove:"))
     app.add_handler(CallbackQueryHandler(h.handle_check_now, pattern=r"^check:"))
+    app.add_handler(CallbackQueryHandler(h.handle_edit_filter, pattern=r"^edit_filter:"))
+    app.add_handler(CallbackQueryHandler(h.handle_filter_edit_toggle, pattern=r"^filter_edit_toggle:"))
+    app.add_handler(CallbackQueryHandler(h.handle_filter_edit_confirm, pattern=r"^filter_edit_confirm:"))
+    app.add_handler(CallbackQueryHandler(h.handle_filter_edit_any, pattern=r"^filter_edit_any:"))
+    app.add_handler(CallbackQueryHandler(h.handle_filter_edit_back, pattern=r"^filter_edit_back:"))
 
     for handler in admin_handlers():
         app.add_handler(handler)

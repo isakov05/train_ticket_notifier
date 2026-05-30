@@ -61,7 +61,47 @@ async def _lang(ctx: ContextTypes.DEFAULT_TYPE, user_id: int) -> str:
 
 logger = logging.getLogger(__name__)
 
-SEARCH_DEP, SEARCH_ARV, ENTER_DATE = range(3)
+SEARCH_DEP, SEARCH_ARV, ENTER_DATE, SELECT_FILTER = range(4)
+
+_FILTER_TYPES = [
+    ("platzkart", "Platzkart"),
+    ("coupe", "Coupe"),
+    ("sv", "SV"),
+    ("lux", "Lux"),
+]
+_FILTER_LABELS: dict[str, str] = dict(_FILTER_TYPES)
+
+
+def _filter_display(car_filter: str | None, lang: str) -> str:
+    if not car_filter:
+        return t("filter_any_label", lang)
+    return ", ".join(_FILTER_LABELS.get(k, k.title()) for k in car_filter.split(","))
+
+
+def _filter_keyboard(
+    selected: set,
+    lang: str,
+    toggle_pfx: str,
+    confirm_cb: str,
+    any_cb: str,
+    cancel_cb: str,
+) -> InlineKeyboardMarkup:
+    rows = [
+        [
+            InlineKeyboardButton(
+                f"{'✅' if k in selected else '☐'} {label}",
+                callback_data=f"{toggle_pfx}:{k}",
+            )
+            for k, label in _FILTER_TYPES[i:i + 2]
+        ]
+        for i in range(0, len(_FILTER_TYPES), 2)
+    ]
+    rows.append([
+        InlineKeyboardButton(t("btn_filter_any", lang), callback_data=any_cb),
+        InlineKeyboardButton(t("btn_filter_confirm", lang), callback_data=confirm_cb),
+    ])
+    rows.append([InlineKeyboardButton(t("btn_cancel", lang), callback_data=cancel_cb)])
+    return InlineKeyboardMarkup(rows)
 
 
 async def _safe_answer(query, text: str = "", show_alert: bool = False) -> None:
@@ -329,7 +369,6 @@ async def handle_date(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> int:
     dep = ctx.user_data["dep"]
     arv = ctx.user_data["arv"]
     date_str = dt.strftime("%Y-%m-%d")
-
     existing = await db.get_user_subscriptions(update.effective_user.id)
 
     if len(existing) >= 3:
@@ -337,29 +376,88 @@ async def handle_date(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> int:
         ctx.user_data.clear()
         return ConversationHandler.END
 
-    duplicate = any(
-        s["dep_code"] == dep["code"] and s["arv_code"] == arv["code"] and s["date"] == date_str
-        for s in existing
-    )
-    if duplicate:
+    if any(s["dep_code"] == dep["code"] and s["arv_code"] == arv["code"] and s["date"] == date_str for s in existing):
         await update.message.reply_text(
             t("duplicate_watch", lang, dep=dep["name"], arv=arv["name"], date=dt.strftime("%d %B %Y"))
         )
         ctx.user_data.clear()
         return ConversationHandler.END
 
+    ctx.user_data["pending_date"] = date_str
+    ctx.user_data["filter_sel"] = set()
+    await update.message.reply_text(
+        t("filter_step", lang),
+        reply_markup=_filter_keyboard(
+            set(), lang,
+            toggle_pfx="filter_toggle",
+            confirm_cb="filter_confirm",
+            any_cb="filter_any",
+            cancel_cb="cancel_watch",
+        ),
+    )
+    return SELECT_FILTER
+
+
+async def handle_filter_toggle(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await _safe_answer(query)
+    lang = await _lang(ctx, update.effective_user.id)
+    key = query.data.split(":")[1]
+    sel: set = ctx.user_data.get("filter_sel", set())
+    sel = sel ^ {key}
+    ctx.user_data["filter_sel"] = sel
+    await query.edit_message_text(
+        t("filter_step", lang),
+        reply_markup=_filter_keyboard(
+            sel, lang,
+            toggle_pfx="filter_toggle",
+            confirm_cb="filter_confirm",
+            any_cb="filter_any",
+            cancel_cb="cancel_watch",
+        ),
+    )
+    return SELECT_FILTER
+
+
+async def handle_filter_confirm(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await _safe_answer(query)
+    lang = await _lang(ctx, update.effective_user.id)
+    sel: set = ctx.user_data.get("filter_sel", set())
+    if not sel:
+        await _safe_answer(query, t("filter_none_selected", lang), show_alert=True)
+        return SELECT_FILTER
+    return await _finish_watch(query, ctx, lang, ",".join(sorted(sel)))
+
+
+async def handle_filter_any(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await _safe_answer(query)
+    lang = await _lang(ctx, update.effective_user.id)
+    return await _finish_watch(query, ctx, lang, None)
+
+
+async def _finish_watch(query, ctx: ContextTypes.DEFAULT_TYPE, lang: str, car_filter: str | None) -> int:
+    dep = ctx.user_data["dep"]
+    arv = ctx.user_data["arv"]
+    date_str = ctx.user_data["pending_date"]
+    dt = datetime.strptime(date_str, "%Y-%m-%d")
     sub_id = await db.add_subscription(
-        chat_id=update.effective_chat.id,
-        user_id=update.effective_user.id,
+        chat_id=query.message.chat_id,
+        user_id=query.from_user.id,
         dep_code=dep["code"],
         dep_name=dep["name"],
         arv_code=arv["code"],
         arv_name=arv["name"],
         date=date_str,
+        car_filter=car_filter,
     )
-
-    await update.message.reply_text(
-        t("watch_added", lang, dep=dep["name"], arv=arv["name"], date=dt.strftime("%d %B %Y"), id=sub_id)
+    await query.edit_message_text(
+        t("watch_added", lang,
+          dep=dep["name"], arv=arv["name"],
+          date=dt.strftime("%d %B %Y"),
+          id=sub_id,
+          filter=_filter_display(car_filter, lang))
     )
     ctx.user_data.clear()
     return ConversationHandler.END
@@ -418,16 +516,123 @@ async def cmd_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
     for sub in subs:
         dt = datetime.strptime(sub["date"], "%Y-%m-%d")
+        filter_label = _filter_display(sub.get("car_filter"), lang)
         text = (
             f"<b>{_h(sub['dep_name'])} → {_h(sub['arv_name'])}</b>\n"
             f"Date: {dt.strftime('%d %B %Y')}\n"
+            f"Car types: {_h(filter_label)}\n"
             f"Watch ID: <code>{sub['id']}</code>"
         )
-        keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton(t("btn_check_now", lang), callback_data=f"check:{sub['id']}"),
-            InlineKeyboardButton(t("btn_remove", lang), callback_data=f"remove:{sub['id']}"),
-        ]])
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton(t("btn_check_now", lang), callback_data=f"check:{sub['id']}"),
+                InlineKeyboardButton(t("btn_edit_filter", lang), callback_data=f"edit_filter:{sub['id']}"),
+            ],
+            [InlineKeyboardButton(t("btn_remove", lang), callback_data=f"remove:{sub['id']}")],
+        ])
         await update.message.reply_text(text, parse_mode="HTML", reply_markup=keyboard)
+
+
+async def _show_watch_item(query, sub_id: int, lang: str) -> None:
+    sub = await db.get_subscription(sub_id)
+    if sub is None:
+        await query.edit_message_text(t("watch_not_found", lang))
+        return
+    dt = datetime.strptime(sub["date"], "%Y-%m-%d")
+    filter_label = _filter_display(sub.get("car_filter"), lang)
+    text = (
+        f"<b>{_h(sub['dep_name'])} → {_h(sub['arv_name'])}</b>\n"
+        f"Date: {dt.strftime('%d %B %Y')}\n"
+        f"Car types: {_h(filter_label)}\n"
+        f"Watch ID: <code>{sub_id}</code>"
+    )
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(t("btn_check_now", lang), callback_data=f"check:{sub_id}"),
+            InlineKeyboardButton(t("btn_edit_filter", lang), callback_data=f"edit_filter:{sub_id}"),
+        ],
+        [InlineKeyboardButton(t("btn_remove", lang), callback_data=f"remove:{sub_id}")],
+    ])
+    await query.edit_message_text(text, parse_mode="HTML", reply_markup=keyboard)
+
+
+async def handle_edit_filter(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await _safe_answer(query)
+    lang = await _lang(ctx, update.effective_user.id)
+    sub_id = int(query.data.split(":")[1])
+    subs = await db.get_user_subscriptions(update.effective_user.id)
+    sub = next((s for s in subs if s["id"] == sub_id), None)
+    if sub is None:
+        await _safe_answer(query, t("watch_not_found", lang), show_alert=True)
+        return
+    car_filter = sub.get("car_filter")
+    sel = set(car_filter.split(",")) if car_filter else set()
+    ctx.user_data[f"efilter_{sub_id}"] = sel
+    await query.edit_message_text(
+        t("filter_step", lang),
+        reply_markup=_filter_keyboard(
+            sel, lang,
+            toggle_pfx=f"filter_edit_toggle:{sub_id}",
+            confirm_cb=f"filter_edit_confirm:{sub_id}",
+            any_cb=f"filter_edit_any:{sub_id}",
+            cancel_cb=f"filter_edit_back:{sub_id}",
+        ),
+    )
+
+
+async def handle_filter_edit_toggle(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await _safe_answer(query)
+    lang = await _lang(ctx, update.effective_user.id)
+    _, sub_id_str, key = query.data.split(":", 2)
+    sub_id = int(sub_id_str)
+    sel: set = ctx.user_data.get(f"efilter_{sub_id}", set())
+    sel = sel ^ {key}
+    ctx.user_data[f"efilter_{sub_id}"] = sel
+    await query.edit_message_text(
+        t("filter_step", lang),
+        reply_markup=_filter_keyboard(
+            sel, lang,
+            toggle_pfx=f"filter_edit_toggle:{sub_id}",
+            confirm_cb=f"filter_edit_confirm:{sub_id}",
+            any_cb=f"filter_edit_any:{sub_id}",
+            cancel_cb=f"filter_edit_back:{sub_id}",
+        ),
+    )
+
+
+async def handle_filter_edit_confirm(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await _safe_answer(query)
+    lang = await _lang(ctx, update.effective_user.id)
+    sub_id = int(query.data.split(":")[1])
+    sel: set = ctx.user_data.get(f"efilter_{sub_id}", set())
+    if not sel:
+        await _safe_answer(query, t("filter_none_selected", lang), show_alert=True)
+        return
+    await db.update_subscription_filter(sub_id, ",".join(sorted(sel)))
+    ctx.user_data.pop(f"efilter_{sub_id}", None)
+    await _show_watch_item(query, sub_id, lang)
+
+
+async def handle_filter_edit_any(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await _safe_answer(query)
+    lang = await _lang(ctx, update.effective_user.id)
+    sub_id = int(query.data.split(":")[1])
+    await db.update_subscription_filter(sub_id, None)
+    ctx.user_data.pop(f"efilter_{sub_id}", None)
+    await _show_watch_item(query, sub_id, lang)
+
+
+async def handle_filter_edit_back(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await _safe_answer(query)
+    lang = await _lang(ctx, update.effective_user.id)
+    sub_id = int(query.data.split(":")[1])
+    ctx.user_data.pop(f"efilter_{sub_id}", None)
+    await _show_watch_item(query, sub_id, lang)
 
 
 async def handle_remove(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -525,6 +730,12 @@ def watch_conversation() -> ConversationHandler:
                 CallbackQueryHandler(handle_back_to_arv, pattern=r"^back_to_arv$"),
                 CallbackQueryHandler(handle_cancel_callback, pattern=r"^cancel_watch$"),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, handle_date),
+            ],
+            SELECT_FILTER: [
+                CallbackQueryHandler(handle_filter_toggle, pattern=r"^filter_toggle:"),
+                CallbackQueryHandler(handle_filter_confirm, pattern=r"^filter_confirm$"),
+                CallbackQueryHandler(handle_filter_any, pattern=r"^filter_any$"),
+                CallbackQueryHandler(handle_cancel_callback, pattern=r"^cancel_watch$"),
             ],
         },
         fallbacks=[CommandHandler("cancel", cmd_cancel)],
