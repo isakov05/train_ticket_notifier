@@ -5,18 +5,29 @@ STRINGS: dict[str, dict[str, str]] = {
             "Hi {name}! I monitor train tickets on uzrailways.\n\n"
             "Your chat ID: <code>{chat_id}</code>\n\n"
             "Commands:\n"
-            "/watch — add a new ticket watch\n"
-            "/list  — your active watches\n"
-            "/help  — show this message"
-        ),
-        # /help
-        "help": (
-            "Commands:\n"
             "/watch    — add a new ticket watch\n"
             "/list     — your active watches\n"
             "/language — change language\n"
-            "/help     — this message\n\n"
-            "I check for new tickets every {interval} and notify you instantly."
+            "/help     — show this message"
+        ),
+        # /help
+        "help": (
+            "How to use this bot:\n\n"
+            "1. Set your language\n"
+            "   /language — choose English or Qaraqalpaqsha\n\n"
+            "2. Add a watch  /watch\n"
+            "   Step 1 — type departure city (e.g. Toshkent)\n"
+            "   Step 2 — type arrival city (e.g. Nukus)\n"
+            "   Step 3 — enter travel date in DD.MM.YYYY format\n"
+            "   Step 4 — choose car types to watch (or tap Any)\n\n"
+            "3. Manage watches  /list\n"
+            "   • Check now — see current seat availability\n"
+            "   • Edit filter — change car type filter\n"
+            "   • Remove — delete the watch\n\n"
+            "4. Notifications\n"
+            "   You'll get a message the moment new seats appear.\n"
+            "   I check every {interval}.\n\n"
+            "Limits: up to 3 active watches at a time."
         ),
         # /language
         "language_choose": "Choose your language:",
@@ -89,18 +100,29 @@ STRINGS: dict[str, dict[str, str]] = {
             "Salam {name}! Men uzrailways'ta poyezd biletlerin baqlayman.\n\n"
             "Siziń chat ID: <code>{chat_id}</code>\n\n"
             "Buyırıqlar:\n"
-            "/watch — jańa baqlaw qosıw\n"
-            "/list  — aktiv baqławlarıńız\n"
-            "/help  — bul xabar"
-        ),
-        # /help
-        "help": (
-            "Buyırıqlar:\n"
             "/watch    — jańa baqlaw qosıw\n"
             "/list     — aktiv baqławlarıńız\n"
             "/language — tildi ózgertiriw\n"
-            "/help     — bul xabar\n\n"
-            "Jańa biletlerdi {interval} sayın tekserip, dereq beremin."
+            "/help     — bul xabar"
+        ),
+        # /help
+        "help": (
+            "Bottan qalayınsha paydalanıw:\n\n"
+            "1. Tildi belgileniz\n"
+            "   /language — English yaki Qaraqalpaqsha\n\n"
+            "2. Baqlaw qosıw  /watch\n"
+            "   1-qádem — ketiw qalasın jazıń (mısalı: Toshkent)\n"
+            "   2-qádem — keliw qalasın jazıń (mısalı: Nukus)\n"
+            "   3-qádem — ketiw sánesin DD.MM.YYYY formatında jazıń(mısalı: 20.03.2026)\n"
+            "   4-qádem — vagon túrlerini tańlań (yaki Hámme túrler)\n\n"
+            "3. Baqławlardı basqarıw  /list\n"
+            "   • Házir tekseriw — házirgı orınlardı kóriw\n"
+            "   • Filterdi ózgertiriw — vagon túri filterin ózgertiriw\n"
+            "   • Alıp taslaw — baqławdı óshiriw\n\n"
+            "4. Xabarlar\n"
+            "   Jańa orınlar payda bolğanda xabar beremen.\n"
+            "   {interval} sayın tekseremen.\n\n"
+            "Sheklewler: bir waqıtta 3 baqławǵa shekem qosa alasız."
         ),
         # /language
         "language_choose": "Tilińizdi tańlań:",
